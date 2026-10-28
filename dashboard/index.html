@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
+  <title>Share Dashboard: Small Software Cloud</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-mark">S</div>
+        <div>
+          <div class="brand-name">Share</div>
+          <div class="brand-sub">Small Software Cloud</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-page="project" id="nav-project">
+          <span class="nav-icon">◧</span> Project
+        </button>
+        <button class="nav-item" data-page="links" id="nav-links">
+          <span class="nav-icon">⛓</span> Links
+        </button>
+        <button class="nav-item" data-page="activity" id="nav-activity">
+          <span class="nav-icon">◷</span> Activity
+        </button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="gw-status" id="gw-status">
+          <span class="dot dot-idle"></span><span id="gw-status-text">Checking gateway…</span>
+        </div>
+        <div class="local-badge">🔒 Local only · 127.0.0.1</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- PROJECT -->
+      <section class="page" id="page-project">
+        <header class="page-head">
+          <div>
+            <h1>Project</h1>
+            <p class="muted">What will be protected, and how it reaches the gateway.</p>
+          </div>
+          <button class="btn btn-ghost" id="btn-refresh">↻ Re-detect</button>
+        </header>
+
+        <div class="card hidden" id="no-project">
+          <h2>No project detected</h2>
+          <p class="muted">Enter the path of the folder you want to share.</p>
+          <form class="row" id="form-root">
+            <input id="input-root" class="input mono" placeholder="C:\path\to\your-project" required>
+            <button class="btn btn-primary" id="btn-set-root" type="submit">Use folder</button>
+          </form>
+        </div>
+
+        <div id="project-view" class="hidden">
+          <div class="card detect-card">
+            <div class="detect-head">
+              <div class="fw-badge" id="fw-badge">?</div>
+              <div class="detect-title">
+                <h2 id="p-name">—</h2>
+                <div class="mono muted small" id="p-root">—</div>
+              </div>
+              <span class="pill" id="p-kind">—</span>
+            </div>
+            <div class="grid-4">
+              <div class="stat"><div class="stat-label">Framework</div><div class="stat-val" id="p-framework">—</div></div>
+              <div class="stat"><div class="stat-label">Package manager</div><div class="stat-val" id="p-pm">—</div></div>
+              <div class="stat"><div class="stat-label">Output folder</div><div class="stat-val mono" id="p-out">—</div></div>
+              <div class="stat"><div class="stat-label">Built files</div><div class="stat-val" id="p-files">—</div></div>
+            </div>
+            <ul class="notes" id="p-notes"></ul>
+            <div class="callout callout-ok hidden" id="gitignore-note">
+              Added <code>.share/</code> to this project's <code>.gitignore</code>. Secrets are stored in
+              <code id="creds-path">~/.config</code>, never in your project.
+            </div>
+            <details class="change-folder">
+              <summary>Change project folder</summary>
+              <form class="row" id="form-root-2">
+                <input id="input-root-2" class="input mono" placeholder="Path to project folder" required>
+                <button class="btn" type="submit">Switch</button>
+              </form>
+            </details>
+          </div>
+
+          <div class="card">
+            <h2>Protection target</h2>
+            <p class="muted">Detected suggestion is preselected. You can override it.</p>
+            <div class="targets" id="targets">
+              <label class="target" data-target="static">
+                <input type="radio" name="target" value="static" id="target-static">
+                <div class="target-body">
+                  <div class="target-title">Static folder <span class="tag tag-green">Most secure</span></div>
+                  <div class="target-desc">Build output is uploaded to private storage. The gateway is the only way in, so there is no public origin to leak.</div>
+                </div>
+              </label>
+              <label class="target" data-target="url">
+                <input type="radio" name="target" value="url" id="target-url">
+                <div class="target-body">
+                  <div class="target-title">Existing URL <span class="tag tag-amber">Needs origin lock</span></div>
+                  <div class="target-desc">Already deployed on Vercel, Netlify, etc. The gateway reverse-proxies to it. You must lock the origin so the raw URL stops working.</div>
+                </div>
+              </label>
+              <label class="target" data-target="port">
+                <input type="radio" name="target" value="port" id="target-port">
+                <div class="target-body">
+                  <div class="target-title">Local port <span class="tag">Stretch</span></div>
+                  <div class="target-desc">Runs your dev server and tunnels it out. The link works only while this machine is on.</div>
+                </div>
+              </label>
+            </div>
+
+            <form id="form-overrides" class="fields">
+              <div class="field" data-show="static">
+                <label for="f-build">Build command</label>
+                <input id="f-build" class="input mono" placeholder="npm run build (leave empty to skip)">
+              </div>
+              <div class="field" data-show="static">
+                <label for="f-out">Output folder</label>
+                <input id="f-out" class="input mono" placeholder="dist">
+              </div>
+              <div class="field" data-show="url">
+                <label for="f-origin">Deployed origin URL</label>
+                <input id="f-origin" class="input mono" placeholder="https://my-app.vercel.app">
+              </div>
+              <div class="field" data-show="port">
+                <label for="f-dev">Dev command</label>
+                <input id="f-dev" class="input mono" placeholder="npm run dev">
+              </div>
+              <div class="field" data-show="port">
+                <label for="f-port">Port</label>
+                <input id="f-port" class="input mono" type="number" min="1" max="65535" placeholder="3000">
+              </div>
+              <div class="row end">
+                <button type="button" class="btn btn-ghost" id="btn-reset">Reset to detected</button>
+                <button type="submit" class="btn btn-primary" id="btn-save">Save target</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>Gateway</h2>
+            <p class="muted">Where share links are served from. Use your deployed app URL in production.</p>
+            <form class="row" id="form-gateway">
+              <input id="f-gateway" class="input mono" placeholder="https://your-app.vercel.app">
+              <button class="btn" type="submit" id="btn-gateway">Save</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- LINKS -->
+      <section class="page hidden" id="page-links">
+        <header class="page-head">
+          <div><h1>Links</h1><p class="muted">Many links to the same project, each with its own access rules.</p></div>
+        </header>
+        <div class="card empty">
+          <div class="empty-icon">⛓</div>
+          <h2>Link management arrives in Phases 2–4</h2>
+          <p class="muted">Create, copy, revoke and rotate links with public, password, email, expiry and usage-limit rules.</p>
+        </div>
+      </section>
+
+      <!-- ACTIVITY -->
+      <section class="page hidden" id="page-activity">
+        <header class="page-head">
+          <div><h1>Activity</h1><p class="muted">Who opened which link, when, and failed attempts.</p></div>
+        </header>
+        <div class="card empty">
+          <div class="empty-icon">◷</div>
+          <h2>Audit log arrives in Phase 6</h2>
+          <p class="muted">Every open and failed attempt will be recorded per link.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="toast hidden" id="toast"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
