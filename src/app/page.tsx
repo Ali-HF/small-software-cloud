@@ -1,275 +1,534 @@
-'use client';
+"use client";
 
-// ==============================================================================
-// Small Software Cloud - Landing Page (YE Digital Hackathon 2026)
-// ==============================================================================
-
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { 
-  Cloud, 
-  Sparkles, 
-  ArrowRight, 
-  ShieldCheck, 
-  Users, 
-  Code2, 
-  Zap, 
-  ExternalLink,
-  ChevronRight,
-  Database,
+import React, { useState } from "react";
+import Link from "next/link";
+import {
+  Shield,
+  Key,
+  Mail,
+  Clock,
+  Eye,
   Lock,
-  Layers
-} from 'lucide-react';
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  Terminal,
+  Sparkles,
+  ExternalLink,
+  Globe,
+  Sun,
+  Moon,
+  Laptop,
+  Check,
+  Copy,
+} from "lucide-react";
+import {
+  Button,
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardFooter,
+  Switch,
+  Select,
+  SegmentedControl,
+  useTheme,
+} from "@/components/ui";
 
 export default function LandingPage() {
-  const router = useRouter();
-  const [prompt, setPrompt] = useState('');
+  const { theme, setTheme, resolvedTheme } = useTheme();
 
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim()) return;
-    router.push(`/studio?prompt=${encodeURIComponent(prompt.trim())}`);
-  }
+  // Interactive Simulator State
+  const [hasPassword, setHasPassword] = useState(true);
+  const [hasEmail, setHasEmail] = useState(false);
+  const [expiryHours, setExpiryHours] = useState("24");
+  const [maxOpens, setMaxOpens] = useState("10");
+  const [role, setRole] = useState("viewer");
+  const [copiedCmd, setCopiedCmd] = useState(false);
+
+  const command = "npx small-software-cloud share";
+
+  const handleCopyCmd = () => {
+    navigator.clipboard.writeText(command);
+    setCopiedCmd(true);
+    setTimeout(() => setCopiedCmd(false), 2000);
+  };
+
+  // Plain-English rule summary generator
+  const getRuleSummary = () => {
+    const parts: string[] = [];
+
+    if (hasEmail) {
+      parts.push("Only allowed email addresses (with 6-digit verification code)");
+    } else if (hasPassword) {
+      parts.push("Anyone with the password");
+    } else {
+      parts.push("Anyone with the link");
+    }
+
+    parts.push(`can access as ${role.toUpperCase()}`);
+
+    if (expiryHours !== "0") {
+      parts.push(`for ${expiryHours === "1" ? "1 hour" : `${expiryHours} hours`}`);
+    } else {
+      parts.push("with no expiration");
+    }
+
+    if (maxOpens !== "0") {
+      parts.push(`(capped at ${maxOpens} total opens)`);
+    }
+
+    return parts.join(" ") + ".";
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white">
-      
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] flex flex-col selection:bg-[var(--accent)] selection:text-white">
       {/* Top Navbar */}
-      <header className="h-16 border-b border-slate-800/80 px-6 sm:px-12 flex items-center justify-between sticky top-0 bg-slate-950/80 backdrop-blur-md z-40">
+      <header className="h-16 border-b border-[var(--border-default)] px-6 sm:px-12 flex items-center justify-between sticky top-0 bg-[var(--bg-canvas)]/90 backdrop-blur-md z-40">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-400 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-            <Cloud className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-lg bg-[var(--accent)] text-white flex items-center justify-center font-bold text-sm shadow-sm">
+            <Shield className="w-4 h-4" />
           </div>
-          <span className="font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">
+          <span className="font-bold text-base tracking-tight text-[var(--text-primary)]">
             Small Software Cloud
           </span>
         </Link>
 
-        <div className="flex items-center gap-4">
+        <nav className="flex items-center gap-4 sm:gap-6 text-xs font-medium">
           <Link
-            href="/dashboard"
-            className="text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+            href="/quickstart"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            Dashboard
+            Quickstart
+          </Link>
+          <Link
+            href="/dev/components"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:inline"
+          >
+            Components
           </Link>
           <Link
             href="/studio"
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/25 transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Open Studio</span>
+            <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+            <span>Build from a prompt</span>
           </Link>
-        </div>
+
+          {/* Theme switcher */}
+          <button
+            type="button"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            className="p-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-ring cursor-pointer"
+            aria-label="Toggle theme"
+          >
+            {resolvedTheme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+        </nav>
       </header>
 
       {/* Hero Section */}
-      <section className="relative pt-20 pb-16 px-6 sm:px-12 max-w-5xl mx-auto w-full text-center">
-        
-        {/* Glow backdrop */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[300px] bg-indigo-600/15 blur-[120px] rounded-full pointer-events-none" />
-
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-xs font-semibold mb-6">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>YE Digital Hackathon 2026 \u2022 Cloud for Small Software</span>
+      <section className="pt-20 pb-16 px-6 sm:px-12 max-w-5xl mx-auto w-full text-center flex flex-col items-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[var(--accent-border)] bg-[var(--accent-subtle)] text-[var(--accent)] text-xs font-semibold mb-6">
+          <Lock className="w-3.5 h-3.5" />
+          <span>Access-controlled links for any project</span>
         </div>
 
-        <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-[1.1] mb-6">
-          The cloud for software <br className="hidden sm:inline" />
-          <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-indigo-200 to-purple-400">
-            too small to build, but too useful to skip.
-          </span>
+        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight leading-[1.15] max-w-3xl mb-6">
+          Put any project behind access-controlled links.
         </h1>
 
-        <p className="text-base sm:text-lg text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
-          Describe any small tool in plain English. The platform generates it as a single-file HTML app, stores it, and serves it with an injected SDK for shared realtime persistence.
+        <p className="text-base sm:text-lg text-[var(--text-secondary)] max-w-2xl mb-8 leading-relaxed font-normal">
+          Run one command in your project folder, open a local dashboard, and create as many links as you want, each with its own rules: password, email list, expiry, usage limit, and role. Revoke any link instantly. See who opened what.
         </p>
 
-        {/* Prompt Input Bar */}
-        <form onSubmit={handleCreate} className="max-w-2xl mx-auto relative mb-12">
-          <div className="flex flex-col sm:flex-row items-center gap-2 p-2 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl focus-within:border-indigo-500/80 transition-all">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. A shared expense splitter for my flat with net balances..."
-              className="w-full px-4 py-3 bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-              required
-            />
+        {/* Command Box */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md mb-10">
+          <div className="flex-1 w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm font-mono text-xs">
+            <span className="text-[var(--text-muted)] select-none mr-2">$</span>
+            <span className="text-[var(--text-primary)] font-medium select-all">{command}</span>
             <button
-              type="submit"
-              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all shrink-0"
+              type="button"
+              onClick={handleCopyCmd}
+              className="ml-3 p-1 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-ring cursor-pointer"
+              aria-label="Copy install command"
             >
-              <span>Build Tool</span>
-              <ArrowRight className="w-4 h-4" />
+              {copiedCmd ? <Check className="w-4 h-4 text-[var(--status-active-text)]" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
-        </form>
+          <Link href="/quickstart" className="w-full sm:w-auto">
+            <Button variant="primary" className="w-full sm:w-auto" rightIcon={<ArrowRight className="w-4 h-4" />}>
+              Get started
+            </Button>
+          </Link>
+        </div>
 
-        {/* Quick Demo App Links */}
-        <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-400">
-          <span className="text-slate-500 font-semibold mr-1">Pre-built Demos:</span>
-          <Link
-            href="/a/app-expense-demo"
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
-          >
-            🏡 <span>Expense Splitter</span>
-            <ExternalLink className="w-3 h-3 text-slate-500" />
-          </Link>
-          <Link
-            href="/a/app-poll-demo"
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
-          >
-            📊 <span>Live Decision Poll</span>
-            <ExternalLink className="w-3 h-3 text-slate-500" />
-          </Link>
-          <Link
-            href="/a/app-roster-demo"
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
-          >
-            📋 <span>Team Habit Roster</span>
-            <ExternalLink className="w-3 h-3 text-slate-500" />
-          </Link>
+        <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-[var(--text-muted)]">
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-[var(--status-active-text)]" />
+            Zero secrets committed
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-[var(--status-active-text)]" />
+            Localhost 127.0.0.1 bound
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-[var(--status-active-text)]" />
+            Tokens stored as SHA-256
+          </span>
         </div>
       </section>
 
-      {/* 3 Featured Demo Apps Showcase */}
-      <section className="py-16 px-6 sm:px-12 max-w-6xl mx-auto w-full border-t border-slate-800/80">
-        <div className="text-center mb-12">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mb-2">
-            Explore Ready-to-Use Demo Apps
-          </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            These full single-file micro applications are powered by the platform&apos;s injected SDK and realtime storage.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card 1 */}
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 flex flex-col justify-between hover:border-indigo-500/40 transition-all shadow-xl group">
-            <div>
-              <div className="w-10 h-10 rounded-xl bg-indigo-600/10 text-indigo-400 flex items-center justify-center font-bold text-lg mb-4">
-                🏡
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-indigo-400 transition-colors mb-2">
-                Flatmate Expense Splitter
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                Realtime expense logging for flatmates with automatic net balance calculation, who owes whom, and live multiplayer synchronization.
-              </p>
-            </div>
-            <Link
-              href="/a/app-expense-demo"
-              className="mt-4 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-between transition-colors"
-            >
-              <span>Launch Demo App</span>
-              <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-            </Link>
+      {/* 3-Step Walkthrough */}
+      <section className="py-16 border-t border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="max-w-5xl mx-auto px-6 sm:px-12">
+          <div className="text-center max-w-xl mx-auto mb-12">
+            <h2 className="text-2xl font-bold tracking-tight">How it works in 3 steps</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-1.5">
+              No backend redesign. Works with static sites, Vite, Next.js, or existing deployments.
+            </p>
           </div>
 
-          {/* Card 2 */}
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 flex flex-col justify-between hover:border-indigo-500/40 transition-all shadow-xl group">
-            <div>
-              <div className="w-10 h-10 rounded-xl bg-blue-600/10 text-blue-400 flex items-center justify-center font-bold text-lg mb-4">
-                📊
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors mb-2">
-                Live Decision Poll
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                Multi-option team voting with animated percentage bars, individual voter tracking, and instant updates across all active participants.
-              </p>
-            </div>
-            <Link
-              href="/a/app-poll-demo"
-              className="mt-4 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-between transition-colors"
-            >
-              <span>Launch Demo App</span>
-              <ArrowRight className="w-3.5 h-3.5 text-blue-400" />
-            </Link>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardContent className="pt-6 flex flex-col gap-3">
+                <div className="w-7 h-7 rounded-full bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-border)] flex items-center justify-center text-xs font-bold">
+                  1
+                </div>
+                <h3 className="font-semibold text-sm">Run one command</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Run <code className="font-mono">npm run share</code> in your project. The CLI detects your framework, build scripts, and output folder automatically.
+                </p>
+              </CardContent>
+            </Card>
 
-          {/* Card 3 */}
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 flex flex-col justify-between hover:border-indigo-500/40 transition-all shadow-xl group">
-            <div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-600/10 text-emerald-400 flex items-center justify-center font-bold text-lg mb-4">
-                📋
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-emerald-400 transition-colors mb-2">
-                Team Habit & Task Roster
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                Interactive Mon-Fri schedule table for recurring standups, deployment rotations, and team streaks with live checkbox synchronization.
-              </p>
-            </div>
-            <Link
-              href="/a/app-roster-demo"
-              className="mt-4 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-between transition-colors"
-            >
-              <span>Launch Demo App</span>
-              <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
-            </Link>
+            <Card>
+              <CardContent className="pt-6 flex flex-col gap-3">
+                <div className="w-7 h-7 rounded-full bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-border)] flex items-center justify-center text-xs font-bold">
+                  2
+                </div>
+                <h3 className="font-semibold text-sm">Pick access rules</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  A private dashboard opens on <code className="font-mono">localhost:4040</code>. Choose password, email verification, expiry, or view limits per link.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6 flex flex-col gap-3">
+                <div className="w-7 h-7 rounded-full bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-border)] flex items-center justify-center text-xs font-bold">
+                  3
+                </div>
+                <h3 className="font-semibold text-sm">Control & revoke</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Send different links to clients, QA, or investors. Revoke or rotate any link with 1 click. View exact open audit trails in real time.
+                </p>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </section>
 
-      {/* Architecture & Security Highlights */}
-      <section className="py-16 px-6 sm:px-12 max-w-6xl mx-auto w-full border-t border-slate-800/80">
-        <div className="text-center mb-12">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mb-2">
-            Engineered with Zero-Trust Security
-          </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            Untrusted generated code never touches user session tokens, parent cookies, or database credentials.
+      {/* Interactive Link Simulator */}
+      <section className="py-20 max-w-5xl mx-auto px-6 sm:px-12 w-full">
+        <div className="text-center max-w-xl mx-auto mb-12">
+          <Badge variant="accent" className="mb-3">Interactive demo</Badge>
+          <h2 className="text-2xl font-bold tracking-tight">Try configuring a share link</h2>
+          <p className="text-xs text-[var(--text-muted)] mt-1.5">
+            Test how rules combine into plain-English access policies.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
-              <Lock className="w-5 h-5" />
+        <Card className="max-w-2xl mx-auto shadow-md">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Link Rule Builder</CardTitle>
+              <Badge variant="active" dot>Simulator</Badge>
             </div>
-            <h4 className="text-sm font-bold text-slate-200 mb-1">Sandboxed iframe</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Strict <code>sandbox=&quot;allow-scripts&quot;</code> without <code>allow-same-origin</code> guarantees complete process and cookie isolation.
+            <CardDescription>
+              Toggle rules to see how they protect the target application.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Switch
+                checked={hasPassword}
+                onChange={setHasPassword}
+                label="Password / PIN"
+                description="Prompt for secret code"
+              />
+              <Switch
+                checked={hasEmail}
+                onChange={setHasEmail}
+                label="Email Allowlist"
+                description="Send 6-digit verification OTP"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-[var(--border-subtle)]">
+              <Select
+                label="Expiration"
+                value={expiryHours}
+                onChange={(e) => setExpiryHours(e.target.value)}
+                options={[
+                  { value: "0", label: "Never expires" },
+                  { value: "1", label: "1 hour" },
+                  { value: "24", label: "24 hours" },
+                  { value: "168", label: "7 days" },
+                ]}
+              />
+              <Select
+                label="View Limit"
+                value={maxOpens}
+                onChange={(e) => setMaxOpens(e.target.value)}
+                options={[
+                  { value: "0", label: "Unlimited opens" },
+                  { value: "1", label: "1 open (Single-use)" },
+                  { value: "5", label: "5 opens" },
+                  { value: "10", label: "10 opens" },
+                ]}
+              />
+              <Select
+                label="Target Role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                options={[
+                  { value: "viewer", label: "Viewer (Read-only)" },
+                  { value: "commenter", label: "Commenter" },
+                  { value: "editor", label: "Editor" },
+                ]}
+              />
+            </div>
+
+            {/* Live Plain-English Summary */}
+            <div className="p-3.5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] flex flex-col gap-1.5 mt-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Live Policy Summary
+              </span>
+              <p className="text-xs text-[var(--text-primary)] font-medium leading-relaxed">
+                {getRuleSummary()}
+              </p>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <span className="text-xs text-[var(--text-muted)] font-mono">
+              https://gateway.domain/s/7a9b2c...
+            </span>
+            <Button size="sm" variant="primary" onClick={() => alert("Try running `npm run share` in your terminal to create real links!")}>
+              Deploy Link
+            </Button>
+          </CardFooter>
+        </Card>
+      </section>
+
+      {/* The 6 Access Levels */}
+      <section className="py-16 border-t border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="max-w-5xl mx-auto px-6 sm:px-12">
+          <div className="text-center max-w-xl mx-auto mb-12">
+            <h2 className="text-2xl font-bold tracking-tight">Granular access levels</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-1.5">
+              Mix and match security controls depending on who you are sharing with.
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
-              <Zap className="w-5 h-5" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Globe className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Public view</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Zero friction preview. Protected by referrer stripping, no-index headers, and instant 1-click revocation.
+              </p>
             </div>
-            <h4 className="text-sm font-bold text-slate-200 mb-1">Injected SDK Bridge</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              <code>window.cloud.store</code> communicates over postMessage. Host enforces granular permissions on every write.
+
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Key className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Password & PIN</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Passphrase or 4-digit numerical code. Automatic rate limiting locks out brute-force attempts after repeated failures.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Mail className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Email allowlist</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Specify authorized emails. The gateway emails a 6-digit one-time code with cooldown protections.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Clock className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Expiry windows</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Time-bombed links that expire after 1 hour, 24 hours, or N hours from first open. After expiry, requests return 410 Expired.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Eye className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Usage limits</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Single-use (1 open) or hard-capped view quotas. Prevents links from being forwarded or circulated around teams.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-canvas)] flex flex-col gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-[var(--bg-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)]">
+                <Shield className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm">Role passthrough</h3>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Injects cryptographically signed <code className="font-mono">X-Share-Role</code> and JWT headers. Incoming forged headers are stripped.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Comparison: Why not just share the Vercel URL? */}
+      <section className="py-20 max-w-5xl mx-auto px-6 sm:px-12 w-full">
+        <div className="text-center max-w-xl mx-auto mb-12">
+          <h2 className="text-2xl font-bold tracking-tight">Why not just share the Vercel URL?</h2>
+          <p className="text-xs text-[var(--text-muted)] mt-1.5">
+            Default platform preview URLs are all-or-nothing and impossible to audit.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)]">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)]">
+                <th className="p-4 font-semibold uppercase text-[var(--text-muted)]">Feature</th>
+                <th className="p-4 font-semibold uppercase text-[var(--text-muted)]">Raw Vercel / Netlify URL</th>
+                <th className="p-4 font-semibold uppercase text-[var(--accent)] font-bold">Small Software Cloud</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border-subtle)]">
+              <tr>
+                <td className="p-4 font-medium">Link proliferation</td>
+                <td className="p-4 text-[var(--text-muted)]">1 public URL for everyone</td>
+                <td className="p-4 text-[var(--text-primary)] font-semibold">Separate links with individual rules</td>
+              </tr>
+              <tr>
+                <td className="p-4 font-medium">Revocation</td>
+                <td className="p-4 text-[var(--text-muted)]">Must redeploy or break link for all</td>
+                <td className="p-4 text-[var(--text-primary)] font-semibold">1-click revoke per person or group</td>
+              </tr>
+              <tr>
+                <td className="p-4 font-medium">Access controls</td>
+                <td className="p-4 text-[var(--text-muted)]">None (unless expensive enterprise SSO)</td>
+                <td className="p-4 text-[var(--text-primary)] font-semibold">Passwords, PINs, email allowlists, limits</td>
+              </tr>
+              <tr>
+                <td className="p-4 font-medium">Audit log</td>
+                <td className="p-4 text-[var(--text-muted)]">Raw server log scraping required</td>
+                <td className="p-4 text-[var(--text-primary)] font-semibold">Real-time open & failed challenge feed</td>
+              </tr>
+              <tr>
+                <td className="p-4 font-medium">Origin lock</td>
+                <td className="p-4 text-[var(--text-muted)]">Public origin remains crawlable</td>
+                <td className="p-4 text-[var(--text-primary)] font-semibold">Guided origin lock blocks raw bypass</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Security Promises */}
+      <section className="py-16 border-t border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="max-w-5xl mx-auto px-6 sm:px-12">
+          <div className="text-center max-w-xl mx-auto mb-12">
+            <h2 className="text-2xl font-bold tracking-tight">Security promises</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-1.5">
+              Built with zero-trust defaults and strict client-side data isolation.
             </p>
           </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
-              <Users className="w-5 h-5" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-[var(--status-active-text)] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-semibold">Hashed tokens only</span>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Raw access tokens are displayed only once upon creation. Database stores only cryptographic SHA-256 hashes.
+                </p>
+              </div>
             </div>
-            <h4 className="text-sm font-bold text-slate-200 mb-1">Google-Docs Sharing</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Invite collaborators by email as Viewer or Editor, or toggle public link access with one click.
-            </p>
-          </div>
 
-          <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
-              <Layers className="w-5 h-5" />
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-[var(--status-active-text)] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-semibold">Zero project secrets</span>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Gateway keys and credentials live in <code className="font-mono">~/.config/small-software-cloud/</code>. Project repos only contain git-ignored metadata.
+                </p>
+              </div>
             </div>
-            <h4 className="text-sm font-bold text-slate-200 mb-1">Version History</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Every chat-style iteration creates a tracked version. Preview and restore previous iterations with one click.
-            </p>
+
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-[var(--status-active-text)] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-semibold">DNS-rebinding protection</span>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Local CLI dashboard binds strictly to 127.0.0.1 and checks Host headers, blocking malicious websites from querying local endpoints.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-[var(--status-active-text)] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-semibold">Clean URL redirection</span>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Tokens are redeemed into HttpOnly, SameSite cookies and redirected immediately so secret tokens are never left in browser history.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="mt-auto border-t border-slate-800/80 py-8 px-6 sm:px-12 text-center text-xs text-slate-500">
-        <p>Small Software Cloud \u2022 YE Digital Hackathon 2026 \u2022 Built with Next.js, Supabase, and Claude 3.5 Sonnet</p>
+      <footer className="mt-auto border-t border-[var(--border-default)] py-10 px-6 sm:px-12 bg-[var(--bg-canvas)] text-xs text-[var(--text-muted)]">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
+            <Shield className="w-4 h-4 text-[var(--accent)]" />
+            <span>Small Software Cloud</span>
+            <span className="text-[var(--text-faint)]">•</span>
+            <span className="font-normal text-[var(--text-muted)]">Open source & self-hostable</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <Link href="/quickstart" className="hover:text-[var(--text-primary)] transition-colors">
+              Quickstart
+            </Link>
+            <Link href="/dev/components" className="hover:text-[var(--text-primary)] transition-colors">
+              Component Kit
+            </Link>
+            <Link href="/studio" className="hover:text-[var(--text-primary)] transition-colors">
+              Build from prompt
+            </Link>
+            <a
+              href="https://github.com/Ali-HF/small-software-cloud"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-[var(--text-primary)] transition-colors inline-flex items-center gap-1"
+            >
+              GitHub <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
       </footer>
     </div>
   );
