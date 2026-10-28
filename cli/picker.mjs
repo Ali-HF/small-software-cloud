@@ -14,9 +14,9 @@ export function promptFolderPicker() {
         'powershell.exe',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Sta', '-File', psScript],
         { timeout: 120000 },
-        (err, stdout) => {
+        (err, stdout, stderr) => {
           if (err) {
-            console.warn('[picker] Windows folder picker failed:', err.message);
+            if (stderr && stderr.trim()) console.warn('[picker] Windows folder picker stderr:', stderr.trim());
             return resolve(null);
           }
           const folder = stdout.trim();

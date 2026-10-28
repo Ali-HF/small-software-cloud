@@ -19,7 +19,7 @@ export function loadCredentials() {
   try { creds = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first run */ }
   // Env vars take precedence over the stored file.
   return {
-    gatewayUrl: process.env.SHARE_GATEWAY_URL || creds.gatewayUrl || 'http://localhost:3000',
+    gatewayUrl: process.env.SHARE_GATEWAY_URL || creds.gatewayUrl || 'http://localhost:3001',
     apiKey: process.env.SHARE_API_KEY || creds.apiKey || null,
     file,
   };

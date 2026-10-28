@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { detectProject, looksLikeProject } from './detect.mjs';
 import { ensureProjectConfig, loadProjectConfig, saveProjectConfig, loadCredentials, saveCredentials } from './config.mjs';
 import { promptFolderPicker } from './picker.mjs';
+import { packageProject, uploadBundle } from './packager.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIR = path.resolve(__dirname, '..', 'dashboard');
@@ -269,6 +270,113 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
             return sendJson(res, 200, { ok: r.ok, status: r.status, url: gatewayUrl });
           } catch (e) {
             return sendJson(res, 200, { ok: false, error: e.name === 'AbortError' ? 'timeout' : e.message, url: gatewayUrl });
+          }
+        }
+
+        if (url.pathname === '/api/project/build' && req.method === 'POST') {
+          if (!state.projectRoot) return sendJson(res, 400, { error: 'No project selected' });
+          const payload = projectPayload();
+          const e = payload.effective;
+          const { gatewayUrl } = loadCredentials();
+          const shouldBuild = !!body.build;
+          const config = loadProjectConfig(state.projectRoot);
+          const projectId = config?.projectId || path.basename(state.projectRoot);
+
+          try {
+            const bundled = await packageProject({
+              projectRoot: state.projectRoot,
+              outputDir: e.outputDir,
+              buildCommand: e.buildCommand,
+              shouldBuild,
+            });
+
+            const uploaded = await uploadBundle({
+              gatewayUrl,
+              projectId,
+              projectMeta: {
+                id: projectId,
+                name: payload.project?.name || projectId,
+                target: e.target,
+                outputDir: e.outputDir,
+                buildCommand: e.buildCommand,
+                originUrl: e.originUrl,
+                devCommand: e.devCommand,
+                devPort: e.devPort,
+              },
+              bundleFiles: bundled.files,
+            });
+
+            return sendJson(res, 200, {
+              ok: true,
+              projectId,
+              filesCount: bundled.filesCount,
+              totalBytes: bundled.totalBytes,
+              buildOutput: bundled.buildOutput,
+              uploaded,
+            });
+          } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+          }
+        }
+
+        if (url.pathname === '/api/links' && req.method === 'GET') {
+          if (!state.projectRoot) return sendJson(res, 200, { links: [] });
+          const config = loadProjectConfig(state.projectRoot);
+          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const { gatewayUrl } = loadCredentials();
+          try {
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/links`);
+            const data = await r.json();
+            return sendJson(res, r.status, data);
+          } catch (err) {
+            return sendJson(res, 502, { error: 'Failed to reach gateway: ' + err.message });
+          }
+        }
+
+        if (url.pathname === '/api/links' && req.method === 'POST') {
+          if (!state.projectRoot) return sendJson(res, 400, { error: 'No project selected' });
+          const config = loadProjectConfig(state.projectRoot);
+          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const { gatewayUrl } = loadCredentials();
+          try {
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/links`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await r.json();
+            return sendJson(res, r.status, data);
+          } catch (err) {
+            return sendJson(res, 502, { error: 'Failed to reach gateway: ' + err.message });
+          }
+        }
+
+        if (url.pathname.startsWith('/api/links/') && url.pathname.endsWith('/revoke') && req.method === 'POST') {
+          const linkId = url.pathname.slice('/api/links/'.length, -('/revoke'.length));
+          const { gatewayUrl } = loadCredentials();
+          try {
+            const r = await fetch(`${gatewayUrl}/api/gateway/links/${linkId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await r.json();
+            return sendJson(res, r.status, data);
+          } catch (err) {
+            return sendJson(res, 502, { error: 'Failed to reach gateway: ' + err.message });
+          }
+        }
+
+        if (url.pathname === '/api/activity' && req.method === 'GET') {
+          if (!state.projectRoot) return sendJson(res, 200, { events: [] });
+          const config = loadProjectConfig(state.projectRoot);
+          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const { gatewayUrl } = loadCredentials();
+          try {
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/activity`);
+            const data = await r.json();
+            return sendJson(res, r.status, data);
+          } catch (err) {
+            return sendJson(res, 502, { error: 'Failed to reach gateway: ' + err.message });
           }
         }
 

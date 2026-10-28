@@ -1,7 +1,9 @@
-// Dashboard client. All data is rendered with textContent (never innerHTML).
+// Dashboard client for Small Software Cloud Share CLI.
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 const $ = (id) => document.getElementById(id);
 let state = null;
+let currentLinks = [];
+let currentEvents = [];
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(path, {
@@ -31,15 +33,23 @@ function formatBytes(n) {
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
+function formatDate(iso) {
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 // ---------- Navigation ----------
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.page').forEach((p) => p.classList.toggle('hidden', p.id !== `page-${btn.dataset.page}`));
+    if (btn.dataset.page === 'links') loadLinks();
+    if (btn.dataset.page === 'activity') loadActivity();
   });
 });
 
-// ---------- Rendering ----------
+// ---------- Target Selection ----------
 function selectTarget(target) {
   document.querySelectorAll('.target').forEach((el) => {
     const on = el.dataset.target === target;
@@ -51,6 +61,7 @@ function selectTarget(target) {
   });
 }
 
+// ---------- Render Project ----------
 function render(data) {
   state = data;
   $('f-gateway').value = data.gateway?.url || '';
@@ -92,6 +103,8 @@ function render(data) {
   $('f-origin').value = e.originUrl || '';
   $('f-dev').value = e.devCommand || '';
   $('f-port').value = e.devPort || '';
+
+  loadLinks();
 }
 
 async function load() {
@@ -117,21 +130,7 @@ async function checkGateway() {
   }
 }
 
-// ---------- Events ----------
-document.querySelectorAll('.target').forEach((el) => {
-  el.addEventListener('click', () => selectTarget(el.dataset.target));
-});
-
-$('btn-refresh').addEventListener('click', () => { load(); toast('Re-detected'); });
-
-async function setRoot(value) {
-  try {
-    const data = await api('/api/project/root', { method: 'POST', body: { root: value } });
-    render(data);
-    toast(data.looksLikeProject ? 'Project loaded' : 'Folder loaded (no package.json or index.html found)');
-  } catch (err) { toast(err.message, true); }
-}
-
+// ---------- Folder Browse & Switch ----------
 async function browseFolder() {
   toast('Opening folder picker…');
   try {
@@ -152,25 +151,51 @@ async function browseFolder() {
 $('btn-browse')?.addEventListener('click', browseFolder);
 $('btn-browse-2')?.addEventListener('click', browseFolder);
 
+async function setRoot(value) {
+  try {
+    const data = await api('/api/project/root', { method: 'POST', body: { root: value } });
+    render(data);
+    toast(data.looksLikeProject ? 'Project loaded' : 'Folder loaded');
+  } catch (err) { toast(err.message, true); }
+}
+
 $('form-root').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const val = $('input-root').value.trim();
-  if (!val) {
-    toast('Please enter a folder path or click Browse folder', true);
-    return;
-  }
+  if (!val) { toast('Please enter a folder path or click Browse folder', true); return; }
   setRoot(val);
 });
 $('form-root-2').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const val = $('input-root-2').value.trim();
-  if (!val) {
-    toast('Please enter a folder path or click Browse', true);
-    return;
-  }
+  if (!val) { toast('Please enter a folder path or click Browse', true); return; }
   setRoot(val);
 });
 
+$('btn-refresh').addEventListener('click', () => { load(); toast('Re-detected'); });
+
+// ---------- Build & Sync Bundle ----------
+async function triggerSync(build = false) {
+  const box = $('sync-status-box');
+  const txt = $('sync-status-text');
+  box.classList.remove('hidden');
+  txt.textContent = build ? 'Building project & syncing to gateway…' : 'Packaging & uploading to gateway…';
+  try {
+    const res = await api('/api/project/build', { method: 'POST', body: { build } });
+    txt.textContent = `✓ Synced ${res.filesCount} files (${formatBytes(res.totalBytes)}) to gateway.`;
+    toast('Project synced to gateway!');
+    load();
+    setTimeout(() => box.classList.add('hidden'), 4000);
+  } catch (err) {
+    txt.textContent = `✕ Sync failed: ${err.message}`;
+    toast(err.message, true);
+  }
+}
+
+$('btn-sync-bundle')?.addEventListener('click', () => triggerSync(false));
+$('btn-build-sync')?.addEventListener('click', () => triggerSync(true));
+
+// ---------- Overrides & Gateway Form ----------
 $('form-overrides').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const target = document.querySelector('input[name="target"]:checked')?.value;
@@ -202,6 +227,223 @@ $('form-gateway').addEventListener('submit', async (ev) => {
     toast('Gateway saved');
     checkGateway();
   } catch (err) { toast(err.message, true); }
+});
+
+// ---------- Links Management ----------
+async function loadLinks() {
+  try {
+    const data = await api('/api/links');
+    currentLinks = data.links || [];
+    renderLinks();
+  } catch (err) {
+    console.warn('Could not load links:', err);
+  }
+}
+
+function renderLinks() {
+  const container = $('links-container');
+  const empty = $('links-empty');
+  const badge = $('badge-links-count');
+
+  if (badge) {
+    badge.textContent = currentLinks.length;
+    badge.classList.toggle('hidden', currentLinks.length === 0);
+  }
+
+  if (currentLinks.length === 0) {
+    empty.classList.remove('hidden');
+    container.classList.add('hidden');
+    return;
+  }
+
+  empty.classList.add('hidden');
+  container.classList.remove('hidden');
+  container.replaceChildren();
+
+  const gwUrl = (state?.gateway?.url || window.location.origin).replace(/\/+$/, '');
+
+  currentLinks.forEach((link) => {
+    const card = document.createElement('div');
+    card.className = `link-card ${link.isRevoked ? 'revoked' : ''}`;
+
+    const isExpired = link.expiresAt && new Date(link.expiresAt) < new Date();
+    const isLimitReached = link.maxUses && link.useCount >= link.maxUses;
+
+    let statusText = 'Active';
+    let statusClass = 'tag-active';
+    if (link.isRevoked) {
+      statusText = 'Revoked';
+      statusClass = 'tag-revoked';
+    } else if (isExpired) {
+      statusText = 'Expired';
+      statusClass = 'tag-expired';
+    } else if (isLimitReached) {
+      statusText = 'Limit Reached';
+      statusClass = 'tag-expired';
+    }
+
+    const typeLabel = link.accessType === 'pin'
+      ? `🔢 PIN: ${link.pin || '••••'}`
+      : link.accessType === 'password'
+      ? '🔑 Password protected'
+      : '🌐 Public view';
+
+    const fullUrl = link.rawToken
+      ? `${gwUrl}/s/${link.rawToken}`
+      : `${gwUrl}/s/${link.tokenPreview}…`;
+
+    card.innerHTML = `
+      <div class="link-header">
+        <div class="link-title">
+          <span>${link.label}</span>
+          <span class="tag-status ${statusClass}">${statusText}</span>
+        </div>
+        ${!link.isRevoked ? `<button class="btn btn-danger btn-revoke" data-id="${link.id}">Revoke</button>` : ''}
+      </div>
+      <div class="link-url-box">
+        <span class="link-url-text">${fullUrl}</span>
+        ${link.rawToken ? `<button class="btn btn-secondary btn-copy" data-url="${fullUrl}">Copy link</button>` : ''}
+      </div>
+      <div class="link-meta">
+        <span>${typeLabel}</span>
+        <span>•</span>
+        <span>Views: <strong>${link.useCount}</strong>${link.maxUses ? ` / ${link.maxUses}` : ''}</span>
+        <span>•</span>
+        <span>Expires: ${formatDate(link.expiresAt)}</span>
+        <span>•</span>
+        <span>Created: ${formatDate(link.createdAt)}</span>
+      </div>
+    `;
+
+    card.querySelector('.btn-copy')?.addEventListener('click', (e) => {
+      const url = e.currentTarget.dataset.url;
+      navigator.clipboard.writeText(url).then(() => toast('Link copied to clipboard!'));
+    });
+
+    card.querySelector('.btn-revoke')?.addEventListener('click', async () => {
+      if (confirm(`Revoke link "${link.label}"? Anyone with this link will immediately lose access.`)) {
+        try {
+          await api(`/api/links/${link.id}/revoke`, { method: 'POST', body: {} });
+          toast('Link revoked');
+          loadLinks();
+        } catch (err) { toast(err.message, true); }
+      }
+    });
+
+    container.appendChild(card);
+  });
+}
+
+// ---------- Modal Create Link ----------
+const modal = $('modal-create-link');
+function openModal() {
+  modal.classList.remove('hidden');
+  $('link-label').focus();
+}
+function closeModal() {
+  modal.classList.add('hidden');
+}
+
+$('btn-open-create-link')?.addEventListener('click', openModal);
+$('btn-create-first-link')?.addEventListener('click', openModal);
+$('btn-close-modal')?.addEventListener('click', closeModal);
+$('btn-cancel-modal')?.addEventListener('click', closeModal);
+
+document.querySelectorAll('.access-choice').forEach((choice) => {
+  choice.addEventListener('click', () => {
+    document.querySelectorAll('.access-choice').forEach((c) => c.classList.remove('selected'));
+    choice.classList.add('selected');
+    const type = choice.querySelector('input').value;
+    $('field-pin').classList.toggle('hidden', type !== 'pin');
+    $('field-password').classList.toggle('hidden', type !== 'password');
+  });
+});
+
+$('form-create-link')?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const label = $('link-label').value.trim();
+  const accessType = document.querySelector('input[name="accessType"]:checked')?.value || 'public';
+  const pin = $('link-pin').value.trim();
+  const password = $('link-password').value.trim();
+  const expiresHours = Number($('link-expiry').value) || 0;
+  const maxUses = Number($('link-max-uses').value) || 0;
+
+  if (accessType === 'pin' && !pin) {
+    toast('Please enter a PIN code', true);
+    return;
+  }
+  if (accessType === 'password' && !password) {
+    toast('Please enter a password', true);
+    return;
+  }
+
+  try {
+    const res = await api('/api/links', {
+      method: 'POST',
+      body: { label, accessType, pin, password, expiresHours, maxUses },
+    });
+    closeModal();
+    $('form-create-link').reset();
+    toast('Share link created!');
+
+    // Prepend new link with its rawToken so copy button works right away
+    if (res.link && res.rawToken) {
+      currentLinks.unshift({ ...res.link, rawToken: res.rawToken });
+      renderLinks();
+    } else {
+      loadLinks();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+// ---------- Activity Audit Log ----------
+async function loadActivity() {
+  try {
+    const data = await api('/api/activity');
+    currentEvents = data.events || [];
+    renderActivity();
+  } catch (err) {
+    console.warn('Could not load activity:', err);
+  }
+}
+
+function renderActivity() {
+  const empty = $('activity-empty');
+  const card = $('activity-table-card');
+  const tbody = $('activity-tbody');
+
+  if (currentEvents.length === 0) {
+    empty.classList.remove('hidden');
+    card.classList.add('hidden');
+    return;
+  }
+
+  empty.classList.add('hidden');
+  card.classList.remove('hidden');
+  tbody.replaceChildren();
+
+  currentEvents.forEach((evt) => {
+    const tr = document.createElement('tr');
+    let statusClass = 'tag-active';
+    if (evt.status === 'revoked' || evt.status === 'denied') statusClass = 'tag-revoked';
+    if (evt.status === 'expired') statusClass = 'tag-expired';
+
+    tr.innerHTML = `
+      <td class="mono small">${formatDate(evt.timestamp)}</td>
+      <td><strong>${evt.linkLabel || 'Share Link'}</strong></td>
+      <td><span class="tag-status ${statusClass}">${evt.status}</span></td>
+      <td class="muted small">${evt.reason || 'Successful access'}</td>
+      <td class="mono small muted">${evt.ip || '—'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+$('btn-refresh-activity')?.addEventListener('click', () => {
+  loadActivity();
+  toast('Activity refreshed');
 });
 
 load();
