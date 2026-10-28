@@ -131,8 +131,45 @@ async function setRoot(value) {
     toast(data.looksLikeProject ? 'Project loaded' : 'Folder loaded (no package.json or index.html found)');
   } catch (err) { toast(err.message, true); }
 }
-$('form-root').addEventListener('submit', (ev) => { ev.preventDefault(); setRoot($('input-root').value); });
-$('form-root-2').addEventListener('submit', (ev) => { ev.preventDefault(); setRoot($('input-root-2').value); });
+
+async function browseFolder() {
+  toast('Opening folder picker…');
+  try {
+    const data = await api('/api/project/browse', { method: 'POST', body: {} });
+    if (data.cancelled) {
+      toast('Folder selection cancelled');
+      return;
+    }
+    if (data.selected) {
+      $('input-root').value = data.selected;
+      if ($('input-root-2')) $('input-root-2').value = data.selected;
+    }
+    render(data);
+    toast(data.looksLikeProject ? 'Project loaded' : 'Folder loaded');
+  } catch (err) { toast(err.message, true); }
+}
+
+$('btn-browse')?.addEventListener('click', browseFolder);
+$('btn-browse-2')?.addEventListener('click', browseFolder);
+
+$('form-root').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const val = $('input-root').value.trim();
+  if (!val) {
+    toast('Please enter a folder path or click Browse folder', true);
+    return;
+  }
+  setRoot(val);
+});
+$('form-root-2').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const val = $('input-root-2').value.trim();
+  if (!val) {
+    toast('Please enter a folder path or click Browse', true);
+    return;
+  }
+  setRoot(val);
+});
 
 $('form-overrides').addEventListener('submit', async (ev) => {
   ev.preventDefault();

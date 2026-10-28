@@ -52,9 +52,10 @@
 
         <div class="card hidden" id="no-project">
           <h2>No project detected</h2>
-          <p class="muted">Enter the path of the folder you want to share.</p>
+          <p class="muted">Browse your computer to select your project folder, or type the path directly.</p>
           <form class="row" id="form-root">
-            <input id="input-root" class="input mono" placeholder="C:\path\to\your-project" required>
+            <input id="input-root" class="input mono" placeholder="C:\path\to\your-project">
+            <button class="btn btn-browse" id="btn-browse" type="button">📁 Browse folder…</button>
             <button class="btn btn-primary" id="btn-set-root" type="submit">Use folder</button>
           </form>
         </div>
@@ -83,7 +84,8 @@
             <details class="change-folder">
               <summary>Change project folder</summary>
               <form class="row" id="form-root-2">
-                <input id="input-root-2" class="input mono" placeholder="Path to project folder" required>
+                <input id="input-root-2" class="input mono" placeholder="Path to project folder">
+                <button class="btn btn-browse" id="btn-browse-2" type="button">📁 Browse…</button>
                 <button class="btn" type="submit">Switch</button>
               </form>
             </details>

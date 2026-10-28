@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { detectProject, looksLikeProject } from './detect.mjs';
 import { ensureProjectConfig, loadProjectConfig, saveProjectConfig, loadCredentials, saveCredentials } from './config.mjs';
+import { promptFolderPicker } from './picker.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIR = path.resolve(__dirname, '..', 'dashboard');
@@ -191,6 +192,28 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
           state.projectRoot = abs;
           state.gitignoreUpdated = ensureProjectConfig(abs).gitignoreUpdated;
           return sendJson(res, 200, { ...projectPayload(), looksLikeProject: looksLikeProject(abs) });
+        }
+
+        if (url.pathname === '/api/project/browse' && req.method === 'POST') {
+          const chosen = await promptFolderPicker();
+          if (!chosen) {
+            return sendJson(res, 200, { cancelled: true, ...projectPayload() });
+          }
+          const abs = path.resolve(chosen);
+          if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+            return sendJson(res, 400, { error: 'Selected path is not a folder' });
+          }
+          if (abs === state.repoRoot) {
+            return sendJson(res, 400, { error: 'That is the Small Software Cloud folder itself. Pick your project folder.' });
+          }
+          state.projectRoot = abs;
+          state.gitignoreUpdated = ensureProjectConfig(abs).gitignoreUpdated;
+          return sendJson(res, 200, {
+            cancelled: false,
+            selected: abs,
+            ...projectPayload(),
+            looksLikeProject: looksLikeProject(abs),
+          });
         }
 
         if (url.pathname === '/api/project/overrides' && req.method === 'POST') {

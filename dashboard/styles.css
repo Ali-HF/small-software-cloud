@@ -103,6 +103,8 @@ h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: linear-gradient(135deg, var(--accent), #5b4cf0); border-color: transparent; box-shadow: 0 6px 18px rgba(124,108,255,0.3); }
 .btn-primary:hover { filter: brightness(1.08); background: linear-gradient(135deg, var(--accent), #5b4cf0); }
+.btn-browse { background: rgba(124,108,255,0.12); border-color: rgba(124,108,255,0.3); color: var(--accent-2); }
+.btn-browse:hover { background: rgba(124,108,255,0.22); border-color: var(--accent); color: #fff; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn-ghost:hover { color: var(--text); background: var(--card); }
 
