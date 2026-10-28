@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ui/ThemeProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Small Software Cloud - The Cloud for Micro-Apps",
-  description: "Describe any small tool in plain English. The platform generates it as a single-file HTML app, stores it, and serves it at a shareable link with shared realtime persistence.",
+  title: "Small Software Cloud — Access-Controlled Share Links for Any Project",
+  description:
+    "Run one command in your project folder, open a local dashboard, and create as many links as you want, each with its own rules: password, email list, expiry, usage limit, role. Revoke any link instantly.",
 };
 
 export default function RootLayout({
@@ -23,9 +25,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}>
-      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100">
-        {children}
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col transition-colors duration-150">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

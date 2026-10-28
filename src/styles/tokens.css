@@ -1,0 +1,118 @@
+/* Design tokens for Small Software Cloud
+   Calm, precise, trusted security tool aesthetics.
+   Light theme by default with proper WCAG-compliant dark theme.
+*/
+
+:root {
+  /* Surfaces */
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-muted: #e2e8f0;
+
+  /* Typography */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  /* Borders */
+  --border-subtle: #f1f5f9;
+  --border-default: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #2563eb;
+
+  /* One Primary Accent (Calm Engineering Blue) */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-foreground: #ffffff;
+
+  /* Semantic Status Colors */
+  /* Active (Green) */
+  --status-active-text: #15803d;
+  --status-active-bg: #f0fdf4;
+  --status-active-border: #bbf7d0;
+
+  /* Restricted / Attention (Amber) */
+  --status-restricted-text: #b45309;
+  --status-restricted-bg: #fffbeb;
+  --status-restricted-border: #fde68a;
+
+  /* Expired / Inactive (Slate Grey) */
+  --status-expired-text: #475569;
+  --status-expired-bg: #f1f5f9;
+  --status-expired-border: #cbd5e1;
+
+  /* Revoked / Danger (Red) */
+  --status-revoked-text: #b91c1c;
+  --status-revoked-bg: #fef2f2;
+  --status-revoked-border: #fecaca;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-subtle: #fef2f2;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows (subtle, clean) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+}
+
+/* Dark Theme Overrides */
+html.dark, :root.dark {
+  /* Surfaces */
+  --bg-canvas: #090a0f;
+  --bg-surface: #111318;
+  --bg-subtle: #181b22;
+  --bg-muted: #222630;
+
+  /* Typography */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+
+  /* Borders */
+  --border-subtle: #1a1e28;
+  --border-default: #252b38;
+  --border-strong: #3b4457;
+  --border-focus: #3b82f6;
+
+  /* Accent */
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-subtle: rgba(59, 130, 246, 0.12);
+  --accent-border: rgba(59, 130, 246, 0.3);
+  --accent-foreground: #ffffff;
+
+  /* Semantic Status Colors */
+  --status-active-text: #4ade80;
+  --status-active-bg: rgba(74, 222, 128, 0.12);
+  --status-active-border: rgba(74, 222, 128, 0.25);
+
+  --status-restricted-text: #fbbf24;
+  --status-restricted-bg: rgba(251, 191, 36, 0.12);
+  --status-restricted-border: rgba(251, 191, 36, 0.25);
+
+  --status-expired-text: #94a3b8;
+  --status-expired-bg: rgba(148, 163, 184, 0.12);
+  --status-expired-border: rgba(148, 163, 184, 0.25);
+
+  --status-revoked-text: #f87171;
+  --status-revoked-bg: rgba(248, 113, 113, 0.12);
+  --status-revoked-border: rgba(248, 113, 113, 0.25);
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-subtle: rgba(239, 68, 68, 0.12);
+
+  /* Shadows (low ambient in dark mode) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.6);
+}
