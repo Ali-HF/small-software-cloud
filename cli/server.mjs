@@ -55,7 +55,7 @@ function baseHeaders(extra = {}) {
     'Cache-Control': 'no-store',
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Resource-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     ...extra,
   };
 }
@@ -97,10 +97,25 @@ const LOCKED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Das
  * @param {string} opts.repoRoot          this tool's own folder (excluded from detection)
  * @param {number} opts.port
  */
-export function startDashboard({ projectRoot, repoRoot, port }) {
+export function startDashboard({ projectRoot, repoRoot, port, initialSync = null }) {
   const sessionToken = crypto.randomBytes(32).toString('hex');
   const csrfToken = crypto.createHmac('sha256', sessionToken).update('csrf').digest('hex');
-  const state = { projectRoot, repoRoot, gitignoreUpdated: false };
+  const state = { projectRoot, repoRoot, gitignoreUpdated: false, initialSync };
+
+  function getProjectId() {
+    if (!state.projectRoot) return 'default-project';
+    const config = loadProjectConfig(state.projectRoot);
+    const detected = detectProject(state.projectRoot, { exclude: [state.repoRoot] });
+    const raw = config?.projectId || detected.name || path.basename(state.projectRoot);
+    return (
+      String(raw)
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 64) || 'default-project'
+    );
+  }
 
   if (state.projectRoot) {
     state.gitignoreUpdated = ensureProjectConfig(state.projectRoot).gitignoreUpdated;
@@ -110,7 +125,7 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
     const creds = loadCredentials();
     const gateway = { url: creds.gatewayUrl, hasApiKey: !!creds.apiKey, credentialsFile: creds.file };
     if (!state.projectRoot) {
-      return { project: null, config: null, gateway, repoRoot: state.repoRoot };
+      return { project: null, config: null, gateway, repoRoot: state.repoRoot, initialSync: null };
     }
     const detected = detectProject(state.projectRoot, { exclude: [state.repoRoot] });
     const config = loadProjectConfig(state.projectRoot);
@@ -124,7 +139,16 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
       devCommand: o.devCommand ?? detected.devCommand,
       devPort: o.devPort ?? detected.devPort,
     };
-    return { project: detected, config, effective, gateway, gitignoreUpdated: state.gitignoreUpdated, repoRoot: state.repoRoot };
+    return {
+      project: detected,
+      projectId: getProjectId(),
+      config,
+      effective,
+      gateway,
+      gitignoreUpdated: state.gitignoreUpdated,
+      repoRoot: state.repoRoot,
+      initialSync: state.initialSync,
+    };
   }
 
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -163,7 +187,8 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
         return fs.createReadStream(file).pipe(res);
       }
 
-      // 4. API: cookie + CSRF header + origin checks
+      // 3.5. Inline <script> blocks in dashboard use 'unsafe-inline' isn't set, only /assets/app.js is used
+      // Allow external links from the dashboard to open in a new tab
       if (url.pathname.startsWith('/api/')) {
         if (!authed) return sendJson(res, 401, { error: 'Not authenticated' });
         if (!safeEqual(req.headers['x-csrf-token'], csrfToken)) {
@@ -279,8 +304,7 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
           const e = payload.effective;
           const { gatewayUrl } = loadCredentials();
           const shouldBuild = !!body.build;
-          const config = loadProjectConfig(state.projectRoot);
-          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const projectId = getProjectId();
 
           try {
             const bundled = await packageProject({
@@ -296,6 +320,7 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
               projectMeta: {
                 id: projectId,
                 name: payload.project?.name || projectId,
+                framework: payload.project?.framework?.name || null,
                 target: e.target,
                 outputDir: e.outputDir,
                 buildCommand: e.buildCommand,
@@ -305,6 +330,13 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
               },
               bundleFiles: bundled.files,
             });
+
+            state.initialSync = {
+              synced: true,
+              filesCount: bundled.filesCount,
+              totalBytes: bundled.totalBytes,
+              projectId,
+            };
 
             return sendJson(res, 200, {
               ok: true,
@@ -321,11 +353,10 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
 
         if (url.pathname === '/api/links' && req.method === 'GET') {
           if (!state.projectRoot) return sendJson(res, 200, { links: [] });
-          const config = loadProjectConfig(state.projectRoot);
-          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const projectId = getProjectId();
           const { gatewayUrl } = loadCredentials();
           try {
-            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/links`);
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${encodeURIComponent(projectId)}/links`);
             const data = await r.json();
             return sendJson(res, r.status, data);
           } catch (err) {
@@ -335,11 +366,10 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
 
         if (url.pathname === '/api/links' && req.method === 'POST') {
           if (!state.projectRoot) return sendJson(res, 400, { error: 'No project selected' });
-          const config = loadProjectConfig(state.projectRoot);
-          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const projectId = getProjectId();
           const { gatewayUrl } = loadCredentials();
           try {
-            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/links`, {
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${encodeURIComponent(projectId)}/links`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
@@ -355,7 +385,7 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
           const linkId = url.pathname.slice('/api/links/'.length, -('/revoke'.length));
           const { gatewayUrl } = loadCredentials();
           try {
-            const r = await fetch(`${gatewayUrl}/api/gateway/links/${linkId}`, {
+            const r = await fetch(`${gatewayUrl}/api/gateway/links/${encodeURIComponent(linkId)}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
             });
@@ -368,11 +398,10 @@ export function startDashboard({ projectRoot, repoRoot, port }) {
 
         if (url.pathname === '/api/activity' && req.method === 'GET') {
           if (!state.projectRoot) return sendJson(res, 200, { events: [] });
-          const config = loadProjectConfig(state.projectRoot);
-          const projectId = config?.projectId || path.basename(state.projectRoot);
+          const projectId = getProjectId();
           const { gatewayUrl } = loadCredentials();
           try {
-            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${projectId}/activity`);
+            const r = await fetch(`${gatewayUrl}/api/gateway/projects/${encodeURIComponent(projectId)}/activity`);
             const data = await r.json();
             return sendJson(res, r.status, data);
           } catch (err) {

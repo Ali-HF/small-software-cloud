@@ -347,6 +347,33 @@ function computeAuthToken(linkId: string, tokenHash: string) {
     .digest('hex');
 }
 
+function rewriteAssetPaths(content: Buffer, contentType: string, token: string): Buffer {
+  const prefix = `/s/${token}`;
+  if (contentType.startsWith('text/html')) {
+    let html = content.toString('utf8');
+    // Rewrite root-relative asset references so Next.js, Vite, CRA, and static apps load from /s/<token>/...
+    html = html
+      .replace(/(href|src)=["']\/(_next|assets|static|images|fonts|icons|favicon\.ico)/g, `$1="${prefix}/$2`)
+      .replace(/\\"\/_next\//g, `\\"${prefix}/_next/`);
+    return Buffer.from(html, 'utf8');
+  }
+  if (contentType.startsWith('text/javascript') || contentType.startsWith('application/javascript')) {
+    let js = content.toString('utf8');
+    if (js.includes('/_next/')) {
+      js = js.replace(/(["'`])\/_next\//g, `$1${prefix}/_next/`);
+      return Buffer.from(js, 'utf8');
+    }
+  }
+  if (contentType.startsWith('text/css')) {
+    let css = content.toString('utf8');
+    if (css.includes('/_next/') || css.includes('/assets/')) {
+      css = css.replace(/url\((["']?)\/(_next|assets)\//g, `url($1${prefix}/$2/`);
+      return Buffer.from(css, 'utf8');
+    }
+  }
+  return content;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ token: string; path?: string[] }> }
@@ -355,7 +382,7 @@ export async function GET(
   const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
   const userAgent = req.headers.get('user-agent') || 'unknown';
 
-  const link = findLinkByToken(token);
+  const link = await findLinkByToken(token);
   if (!link) {
     return new NextResponse(
       errorHtml(
@@ -373,7 +400,7 @@ export async function GET(
 
   // Check revocation
   if (link.isRevoked) {
-    recordEvent({
+    await recordEvent({
       linkId: link.id,
       projectId: link.projectId,
       linkLabel: link.label,
@@ -398,7 +425,7 @@ export async function GET(
 
   // Check expiration
   if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
-    recordEvent({
+    await recordEvent({
       linkId: link.id,
       projectId: link.projectId,
       linkLabel: link.label,
@@ -421,9 +448,10 @@ export async function GET(
     );
   }
 
-  // Check max uses limit
-  if (link.maxUses && link.useCount >= link.maxUses) {
-    recordEvent({
+  // Check max uses limit (only block on top-level page visits so assets still load on the final allowed view)
+  const isMainPageVisit = !pathSegments || pathSegments.length === 0 || pathSegments.join('/') === 'index.html';
+  if (isMainPageVisit && link.maxUses && link.useCount >= link.maxUses) {
+    await recordEvent({
       linkId: link.id,
       projectId: link.projectId,
       linkLabel: link.label,
@@ -455,7 +483,7 @@ export async function GET(
     const cookieVal = req.cookies.get(getAuthCookieName(link.id))?.value;
     const expectedAuth = computeAuthToken(link.id, link.tokenHash);
     if (cookieVal !== expectedAuth) {
-      recordEvent({
+      await recordEvent({
         linkId: link.id,
         projectId: link.projectId,
         linkLabel: link.label,
@@ -479,8 +507,8 @@ export async function GET(
   }
 
   // Passed all checks!
-  const relPath = pathSegments ? pathSegments.join('/') : 'index.html';
-  const file = getBundleFile(link.projectId, relPath);
+  const relPath = pathSegments && pathSegments.length > 0 ? pathSegments.join('/') : 'index.html';
+  const file = await getBundleFile(link.projectId, relPath);
 
   if (!file) {
     return new NextResponse(
@@ -498,9 +526,9 @@ export async function GET(
   }
 
   // Record access and increment use count on main page view
-  if (!pathSegments || pathSegments.length === 0 || relPath === 'index.html') {
-    recordLinkUse(link.id);
-    recordEvent({
+  if (isMainPageVisit) {
+    await recordLinkUse(link.id);
+    await recordEvent({
       linkId: link.id,
       projectId: link.projectId,
       linkLabel: link.label,
@@ -510,18 +538,20 @@ export async function GET(
     });
   }
 
-  return new NextResponse(new Uint8Array(file.content), {
+  const bodyBuf = rewriteAssetPaths(file.content, file.contentType, token);
+
+  return new NextResponse(new Uint8Array(bodyBuf), {
     status: 200,
     headers: {
       'Content-Type': file.contentType,
       'Content-Security-Policy':
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com;",
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:;",
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'SAMEORIGIN',
       'X-Robots-Tag': 'noindex, nofollow',
       'Referrer-Policy': 'no-referrer',
       'X-Share-Role': 'viewer',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': isMainPageVisit ? 'no-cache' : 'public, max-age=3600',
     },
   });
 }
@@ -534,7 +564,7 @@ export async function POST(
   const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
   const userAgent = req.headers.get('user-agent') || 'unknown';
 
-  const link = findLinkByToken(token);
+  const link = await findLinkByToken(token);
   if (!link) {
     return new NextResponse(
       errorHtml('Link Not Found', 'This link does not exist.', 404, 'revoked'),
@@ -549,8 +579,8 @@ export async function POST(
   const secret = formData?.get('secret')?.toString().trim() || '';
 
   let isValid = false;
-  if (link.accessType === 'pin' && link.pin) {
-    isValid = secret === link.pin;
+  if (link.accessType === 'pin' && link.pinHash) {
+    isValid = hashSecret(secret) === link.pinHash;
   } else if (link.accessType === 'password' && link.passwordHash) {
     isValid = hashSecret(secret) === link.passwordHash;
   } else if (link.accessType === 'email' && Array.isArray(link.allowedEmails)) {
@@ -560,7 +590,7 @@ export async function POST(
   }
 
   if (!isValid) {
-    recordEvent({
+    await recordEvent({
       linkId: link.id,
       projectId: link.projectId,
       linkLabel: link.label,

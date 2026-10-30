@@ -88,6 +88,13 @@ function render(data) {
     ? `${p.outputFiles.count}${p.outputFiles.capped ? '+' : ''} · ${formatBytes(p.outputFiles.bytes)}`
     : 'Not built yet';
 
+  if ($('banner-project-title')) {
+    $('banner-project-title').textContent = `${p.name} · Synced & Ready`;
+  }
+  if ($('banner-sync-meta') && data.initialSync?.synced) {
+    $('banner-sync-meta').textContent = `✓ Automatically built and synced ${data.initialSync.filesCount} files (${formatBytes(data.initialSync.totalBytes)}) to ${data.gateway?.url || 'cloud gateway'}.`;
+  }
+
   const notes = $('p-notes');
   notes.replaceChildren();
   for (const n of p.notes || []) {
@@ -104,7 +111,14 @@ function render(data) {
   $('f-dev').value = e.devCommand || '';
   $('f-port').value = e.devPort || '';
 
-  loadLinks();
+  // Automatically open on the Links tab when a project is detected & ready so the user is 1 click away
+  if (!render._didInitialTab && data.project) {
+    render._didInitialTab = true;
+    const linksBtn = $('nav-links');
+    if (linksBtn) linksBtn.click();
+  } else {
+    loadLinks();
+  }
 }
 
 async function load() {
@@ -301,8 +315,13 @@ function renderLinks() {
         ${!link.isRevoked ? `<button class="btn btn-danger btn-revoke" data-id="${link.id}">Revoke</button>` : ''}
       </div>
       <div class="link-url-box">
-        <span class="link-url-text">${fullUrl}</span>
-        ${link.rawToken ? `<button class="btn btn-secondary btn-copy" data-url="${fullUrl}">Copy link</button>` : ''}
+        <a class="link-url-text" href="${fullUrl}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;">${fullUrl}</a>
+        ${link.rawToken ? `
+          <div class="row" style="gap: 8px;">
+            <a class="btn btn-primary" href="${fullUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">↗ Open Live App</a>
+            <button class="btn btn-secondary btn-copy" data-url="${fullUrl}">Copy link</button>
+          </div>
+        ` : ''}
       </div>
       <div class="link-meta">
         <span>${typeLabel}</span>
@@ -349,6 +368,37 @@ $('btn-create-first-link')?.addEventListener('click', openModal);
 $('btn-close-modal')?.addEventListener('click', closeModal);
 $('btn-cancel-modal')?.addEventListener('click', closeModal);
 
+async function generateInstantLink() {
+  try {
+    toast('Generating deployed link…');
+    if (!state?.initialSync?.synced) {
+      await api('/api/project/build', { method: 'POST', body: { build: !state?.project?.outputExists } });
+      if (state) state.initialSync = { synced: true };
+    }
+    const label = `${state?.project?.name || 'Live App'} (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+    const res = await api('/api/links', {
+      method: 'POST',
+      body: { label, accessType: 'public', expiresHours: 0, maxUses: 0 },
+    });
+    if (res.link && res.rawToken) {
+      const gwUrl = (state?.gateway?.url || window.location.origin).replace(/\/+$/, '');
+      const fullUrl = `${gwUrl}/s/${res.rawToken}`;
+      currentLinks.unshift({ ...res.link, rawToken: res.rawToken });
+      renderLinks();
+      navigator.clipboard?.writeText(fullUrl).catch(() => {});
+      toast('✓ Deployed link generated & copied to clipboard!');
+    } else {
+      loadLinks();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('btn-instant-link')?.addEventListener('click', generateInstantLink);
+$('btn-instant-link-hero')?.addEventListener('click', generateInstantLink);
+$('btn-instant-first-link')?.addEventListener('click', generateInstantLink);
+
 document.querySelectorAll('.access-choice').forEach((choice) => {
   choice.addEventListener('click', () => {
     document.querySelectorAll('.access-choice').forEach((c) => c.classList.remove('selected'));
@@ -378,16 +428,23 @@ $('form-create-link')?.addEventListener('submit', async (ev) => {
   }
 
   try {
+    if (!state?.initialSync?.synced) {
+      await api('/api/project/build', { method: 'POST', body: { build: !state?.project?.outputExists } });
+      if (state) state.initialSync = { synced: true };
+    }
     const res = await api('/api/links', {
       method: 'POST',
       body: { label, accessType, pin, password, expiresHours, maxUses },
     });
     closeModal();
     $('form-create-link').reset();
-    toast('Share link created!');
+    toast('Share link created & copied!');
 
     // Prepend new link with its rawToken so copy button works right away
     if (res.link && res.rawToken) {
+      const gwUrl = (state?.gateway?.url || window.location.origin).replace(/\/+$/, '');
+      const fullUrl = `${gwUrl}/s/${res.rawToken}`;
+      navigator.clipboard?.writeText(fullUrl).catch(() => {});
       currentLinks.unshift({ ...res.link, rawToken: res.rawToken });
       renderLinks();
     } else {

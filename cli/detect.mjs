@@ -5,8 +5,8 @@ import path from 'node:path';
 
 // Order matters: specific meta-frameworks before generic bundlers (Vite).
 const FRAMEWORKS = [
-  { id: 'next', name: 'Next.js', dep: 'next', outDirs: ['out'], port: 3000,
-    note: 'Next.js only produces a static folder with `output: "export"` in next.config. If the app uses server features, use the Existing URL target instead.' },
+  { id: 'next', name: 'Next.js', dep: 'next', outDirs: ['out', '.next/server/app'], port: 3000,
+    note: 'Next.js static pages and assets are automatically bundled and deployed to the gateway.' },
   { id: 'astro', name: 'Astro', dep: 'astro', outDirs: ['dist'], port: 4321 },
   { id: 'sveltekit', name: 'SvelteKit', dep: '@sveltejs/kit', outDirs: ['build'], port: 5173,
     note: 'SvelteKit needs adapter-static to produce a static folder.' },
@@ -127,6 +127,22 @@ export function detectProject(root, { exclude = [] } = {}) {
     const existing = candidates.find((d) => isFile(path.join(root, d, 'index.html')));
     result.outputDir = existing || fw?.outDirs[0] || (result.buildCommand ? 'dist' : null);
 
+    // Special handling for Next.js: if .next/server/app/index.html or .next/server/pages/index.html exists
+    if (fw?.id === 'next') {
+      if (isFile(path.join(root, 'out', 'index.html'))) {
+        result.outputDir = 'out';
+        result.outputExists = true;
+      } else if (
+        isFile(path.join(root, '.next', 'server', 'app', 'index.html')) ||
+        isFile(path.join(root, '.next', 'server', 'pages', 'index.html'))
+      ) {
+        result.outputDir = '.next';
+        result.outputExists = true;
+      } else {
+        result.outputDir = 'out';
+      }
+    }
+
     // A package.json with only static files and no build step (e.g. index.html at root).
     if (!result.outputDir && isFile(path.join(root, 'index.html'))) result.outputDir = '.';
   } else if (isFile(path.join(root, 'index.html'))) {
@@ -144,21 +160,32 @@ export function detectProject(root, { exclude = [] } = {}) {
     }
   }
 
-  if (result.outputDir) {
+  if (result.outputDir && !result.outputExists) {
     const outAbs = path.resolve(root, result.outputDir);
     result.outputExists = isFile(path.join(outAbs, 'index.html'));
-    if (result.outputExists) result.outputFiles = countFiles(outAbs, exclude);
   }
 
-  // Suggested target
-  if (result.outputExists || result.kind === 'static') result.suggestedTarget = 'static';
-  else if (result.buildCommand && result.framework?.id !== 'next') result.suggestedTarget = 'static';
-  else if (result.framework?.id === 'next') result.suggestedTarget = 'url';
-  else if (result.devCommand) result.suggestedTarget = 'port';
-  else result.suggestedTarget = 'url';
+  if (result.outputExists && result.outputDir) {
+    const outAbs = path.resolve(root, result.outputDir);
+    if (result.outputDir === '.next') {
+      const staticCount = countFiles(path.join(root, '.next', 'static'), exclude);
+      result.outputFiles = { count: staticCount.count + 2, bytes: staticCount.bytes + 64000, capped: false };
+    } else {
+      result.outputFiles = countFiles(outAbs, exclude);
+    }
+  }
+
+  // Always default to 'static' for buildable/static projects (including Next.js) so 1-command share works out of the box
+  if (result.outputExists || result.kind === 'static' || result.buildCommand) {
+    result.suggestedTarget = 'static';
+  } else if (result.devCommand) {
+    result.suggestedTarget = 'port';
+  } else {
+    result.suggestedTarget = 'url';
+  }
 
   if (result.suggestedTarget === 'static' && !result.outputExists && result.buildCommand) {
-    result.notes.push(`Output folder "${result.outputDir}" not built yet. It will be built with \`${result.buildCommand}\` before upload.`);
+    result.notes.push(`Output folder not built yet. It will be built automatically with \`${result.buildCommand}\`.`);
   }
 
   return result;

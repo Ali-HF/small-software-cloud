@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revokeLink, getLink } from '@/lib/share-store';
+import { revokeLink, getLink, publicLink } from '@/lib/share-store';
 
 export async function DELETE(
   req: NextRequest,
@@ -7,9 +7,9 @@ export async function DELETE(
 ) {
   try {
     const { id: linkId } = await params;
-    const link = revokeLink(linkId);
+    const link = await revokeLink(linkId);
     if (!link) return NextResponse.json({ error: 'Link not found' }, { status: 404 });
-    return NextResponse.json({ ok: true, link });
+    return NextResponse.json({ ok: true, link: publicLink(link) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -22,9 +22,9 @@ export async function POST(
   // Supports POST /api/gateway/links/:id (or /revoke)
   try {
     const { id: linkId } = await params;
-    const link = revokeLink(linkId);
+    const link = await revokeLink(linkId);
     if (!link) return NextResponse.json({ error: 'Link not found' }, { status: 404 });
-    return NextResponse.json({ ok: true, link });
+    return NextResponse.json({ ok: true, link: publicLink(link) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -36,9 +36,9 @@ export async function GET(
 ) {
   try {
     const { id: linkId } = await params;
-    const link = getLink(linkId);
+    const link = await getLink(linkId);
     if (!link) return NextResponse.json({ error: 'Link not found' }, { status: 404 });
-    return NextResponse.json({ ok: true, link });
+    return NextResponse.json({ ok: true, link: publicLink(link) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

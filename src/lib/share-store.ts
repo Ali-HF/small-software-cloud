@@ -1,18 +1,21 @@
-import fs from 'node:fs';
-import path from 'node:path';
+// ==============================================================================
+// Small Software Cloud - Share Gateway store (Supabase Postgres backed)
+// Works on serverless hosts (Vercel) where the filesystem is read-only/ephemeral.
+// All tables are service-role only (RLS on, no policies).
+// ==============================================================================
+
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServerClient } from './supabase';
 
 export interface ProjectRecord {
   id: string;
   name: string;
-  target: 'static' | 'url' | 'port';
-  outputDir?: string;
-  buildCommand?: string;
-  originUrl?: string;
-  devCommand?: string;
-  devPort?: number;
-  filesCount?: number;
-  totalBytes?: number;
+  framework?: string | null;
+  activeDeployId?: string | null;
+  filesCount: number;
+  totalBytes: number;
   updatedAt: string;
 }
 
@@ -21,11 +24,11 @@ export interface LinkRecord {
   projectId: string;
   label: string;
   tokenHash: string;
-  tokenPreview: string; // first 8 chars for reference
+  tokenPreview: string;
   accessType: 'public' | 'pin' | 'password' | 'email';
-  pin?: string;
-  passwordHash?: string;
-  allowedEmails?: string[];
+  pinHash?: string | null;
+  passwordHash?: string | null;
+  allowedEmails?: string[] | null;
   expiresAt?: string | null;
   maxUses?: number | null;
   useCount: number;
@@ -36,169 +39,306 @@ export interface LinkRecord {
 
 export interface AccessEventRecord {
   id: string;
-  linkId: string;
+  linkId?: string | null;
   projectId: string;
-  linkLabel?: string;
+  linkLabel?: string | null;
   status: 'allowed' | 'denied' | 'challenge' | 'expired' | 'revoked';
-  reason?: string;
-  ip?: string;
-  userAgent?: string;
+  reason?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
   timestamp: string;
 }
 
-export interface BundleFile {
+export interface BundleFileInput {
   path: string;
   contentBase64: string;
-  contentType: string;
-  size: number;
+  size?: number;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), '.share-data');
-const BUNDLES_DIR = path.join(DATA_DIR, 'bundles');
+export const MAX_PROJECT_BYTES = 40 * 1024 * 1024; // 40 MB per deploy
 
-function ensureDataDirs() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(BUNDLES_DIR)) fs.mkdirSync(BUNDLES_DIR, { recursive: true });
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wasm': 'application/wasm',
+  '.pdf': 'application/pdf',
+};
+
+export function contentTypeFor(p: string): string {
+  return MIME_TYPES[path.extname(p).toLowerCase()] || 'application/octet-stream';
 }
 
-function readJson<T>(filename: string, fallback: T): T {
-  ensureDataDirs();
-  const filePath = path.join(DATA_DIR, filename);
-  try {
-    if (!fs.existsSync(filePath)) return fallback;
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
-  } catch {
-    return fallback;
+function db(): SupabaseClient {
+  const sb = getSupabaseServerClient();
+  if (!sb) {
+    throw new Error(
+      'Share gateway storage is not configured (missing Supabase URL / service role key).'
+    );
   }
+  return sb;
 }
 
-function writeJson(filename: string, data: any) {
-  ensureDataDirs();
-  const filePath = path.join(DATA_DIR, filename);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+export function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value.trim()).digest('hex');
+}
+export const hashToken = sha256;
+export const hashSecret = sha256;
+
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a || '');
+  const bb = Buffer.from(b || '');
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
-export function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+function sanitizeRelPath(p: string): string | null {
+  const norm = path.posix.normalize(String(p || '').replace(/\\/g, '/')).replace(/^\/+/, '');
+  if (!norm || norm === '.' || norm.startsWith('..') || norm.includes('/../')) return null;
+  return norm;
 }
 
-export function hashSecret(secret: string): string {
-  return crypto.createHash('sha256').update(secret.trim()).digest('hex');
-}
-
-// ----------------- Projects -----------------
-export function getProject(id: string): ProjectRecord | null {
-  const projects = readJson<Record<string, ProjectRecord>>('projects.json', {});
-  return projects[id] || null;
-}
-
-export function saveProject(project: ProjectRecord): ProjectRecord {
-  const projects = readJson<Record<string, ProjectRecord>>('projects.json', {});
-  projects[project.id] = { ...project, updatedAt: new Date().toISOString() };
-  writeJson('projects.json', projects);
-  return projects[project.id];
-}
-
-// ----------------- Bundles -----------------
-export function saveBundle(projectId: string, files: BundleFile[]) {
-  ensureDataDirs();
-  const projectBundleDir = path.join(BUNDLES_DIR, projectId);
-  if (fs.existsSync(projectBundleDir)) {
-    fs.rmSync(projectBundleDir, { recursive: true, force: true });
-  }
-  fs.mkdirSync(projectBundleDir, { recursive: true });
-
-  let totalBytes = 0;
-  for (const file of files) {
-    const cleanRel = path.normalize(file.path).replace(/^(\.\.[\/\\])+/, '');
-    const absPath = path.join(projectBundleDir, cleanRel);
-    fs.mkdirSync(path.dirname(absPath), { recursive: true });
-    const buf = Buffer.from(file.contentBase64, 'base64');
-    fs.writeFileSync(absPath, buf);
-    totalBytes += buf.length;
-  }
-
-  // Update project metadata
-  const proj = getProject(projectId) || {
-    id: projectId,
-    name: projectId,
-    target: 'static',
-    updatedAt: new Date().toISOString(),
-  };
-  proj.filesCount = files.length;
-  proj.totalBytes = totalBytes;
-  saveProject(proj);
-}
-
-export function getBundleFile(projectId: string, reqPath: string): { content: Buffer; contentType: string } | null {
-  const projectBundleDir = path.join(BUNDLES_DIR, projectId);
-  if (!fs.existsSync(projectBundleDir)) return null;
-
-  let rel = reqPath.replace(/^\/+/, '');
-  if (!rel || rel === '/') rel = 'index.html';
-
-  let absPath = path.resolve(projectBundleDir, rel);
-  if (!absPath.startsWith(projectBundleDir)) return null;
-
-  if (fs.existsSync(absPath) && fs.statSync(absPath).isDirectory()) {
-    absPath = path.join(absPath, 'index.html');
-  }
-
-  // Fallback to index.html for SPA client-side routing if file has no extension
-  if (!fs.existsSync(absPath) && !path.extname(rel)) {
-    const fallback = path.join(projectBundleDir, 'index.html');
-    if (fs.existsSync(fallback)) absPath = fallback;
-  }
-
-  if (!fs.existsSync(absPath) || fs.statSync(absPath).isDirectory()) return null;
-
-  const ext = path.extname(absPath).toLowerCase();
-  const MIME_TYPES: Record<string, string> = {
-    '.html': 'text/html; charset=utf-8',
-    '.htm': 'text/html; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.mjs': 'text/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon',
-    '.webp': 'image/webp',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.txt': 'text/plain; charset=utf-8',
-  };
-
+function mapProject(row: any): ProjectRecord {
   return {
-    content: fs.readFileSync(absPath),
-    contentType: MIME_TYPES[ext] || 'application/octet-stream',
+    id: row.id,
+    name: row.name,
+    framework: row.framework,
+    activeDeployId: row.active_deploy_id,
+    filesCount: row.files_count,
+    totalBytes: Number(row.total_bytes || 0),
+    updatedAt: row.updated_at,
   };
+}
+
+function mapLink(row: any): LinkRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    label: row.label,
+    tokenHash: row.token_hash,
+    tokenPreview: row.token_preview,
+    accessType: row.access_type,
+    pinHash: row.pin_hash,
+    passwordHash: row.password_hash,
+    allowedEmails: row.allowed_emails,
+    expiresAt: row.expires_at,
+    maxUses: row.max_uses,
+    useCount: row.use_count,
+    isRevoked: row.is_revoked,
+    revokedAt: row.revoked_at,
+    createdAt: row.created_at,
+  };
+}
+
+/** Strip secrets before returning a link to a client. */
+export function publicLink(link: LinkRecord) {
+  const { tokenHash, pinHash, passwordHash, ...rest } = link;
+  void tokenHash; void pinHash; void passwordHash;
+  return rest;
+}
+
+// ----------------- Projects & ownership -----------------
+
+export async function getProject(id: string): Promise<ProjectRecord | null> {
+  const { data } = await db().from('share_projects').select('*').eq('id', id).maybeSingle();
+  return data ? mapProject(data) : null;
+}
+
+/**
+ * Verifies the caller owns the project (via the per-project key held by the CLI).
+ * If the project does not exist yet and `createIfMissing` is set, it is claimed.
+ */
+export async function authorizeProject(
+  projectId: string,
+  projectKey: string | null,
+  opts: { createIfMissing?: boolean; name?: string; framework?: string | null } = {}
+): Promise<{ ok: true; project: ProjectRecord } | { ok: false; status: number; error: string }> {
+  if (!/^[a-zA-Z0-9_-]{4,64}$/.test(projectId)) {
+    return { ok: false, status: 400, error: 'Invalid project id' };
+  }
+  if (!projectKey || projectKey.length < 24) {
+    return { ok: false, status: 401, error: 'Missing project key' };
+  }
+  const sb = db();
+  const { data: row } = await sb.from('share_projects').select('*').eq('id', projectId).maybeSingle();
+
+  if (!row) {
+    if (!opts.createIfMissing) return { ok: false, status: 404, error: 'Project not found' };
+    const { data: created, error } = await sb
+      .from('share_projects')
+      .insert({
+        id: projectId,
+        name: (opts.name || projectId).slice(0, 120),
+        framework: opts.framework || null,
+        owner_key_hash: sha256(projectKey),
+      })
+      .select('*')
+      .single();
+    if (error || !created) return { ok: false, status: 500, error: error?.message || 'Could not create project' };
+    return { ok: true, project: mapProject(created) };
+  }
+
+  if (!safeEqual(row.owner_key_hash, sha256(projectKey))) {
+    return { ok: false, status: 403, error: 'Project key does not match' };
+  }
+  return { ok: true, project: mapProject(row) };
+}
+
+// ----------------- Deploys (chunked bundle upload) -----------------
+
+export async function beginDeploy(projectId: string, meta: { name?: string; framework?: string | null }) {
+  const deployId = `d_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
+  await db()
+    .from('share_projects')
+    .update({
+      name: (meta.name || projectId).slice(0, 120),
+      framework: meta.framework || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', projectId);
+  return deployId;
+}
+
+export async function uploadDeployFiles(projectId: string, deployId: string, files: BundleFileInput[]) {
+  if (!/^d_[a-z0-9_]+$/.test(deployId)) throw new Error('Invalid deploy id');
+  const rows = [];
+  for (const f of files) {
+    const rel = sanitizeRelPath(f.path);
+    if (!rel) continue;
+    const size = f.size ?? Math.floor((f.contentBase64.length * 3) / 4);
+    rows.push({
+      project_id: projectId,
+      deploy_id: deployId,
+      path: rel,
+      content_base64: f.contentBase64,
+      content_type: contentTypeFor(rel),
+      size,
+    });
+  }
+  if (rows.length === 0) return 0;
+  const { error } = await db().from('share_files').upsert(rows, { onConflict: 'project_id,deploy_id,path' });
+  if (error) throw new Error(error.message);
+  return rows.length;
+}
+
+export async function commitDeploy(projectId: string, deployId: string) {
+  const sb = db();
+  const { data: stats, error } = await sb
+    .from('share_files')
+    .select('size')
+    .eq('project_id', projectId)
+    .eq('deploy_id', deployId);
+  if (error) throw new Error(error.message);
+  const filesCount = stats?.length || 0;
+  if (filesCount === 0) throw new Error('Deploy has no files');
+  const totalBytes = (stats || []).reduce((s: number, r: any) => s + (r.size || 0), 0);
+  if (totalBytes > MAX_PROJECT_BYTES) throw new Error('Deploy exceeds 40 MB limit');
+
+  await sb
+    .from('share_projects')
+    .update({
+      active_deploy_id: deployId,
+      files_count: filesCount,
+      total_bytes: totalBytes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', projectId);
+
+  // Remove files from previous deploys
+  await sb.from('share_files').delete().eq('project_id', projectId).neq('deploy_id', deployId);
+  return { filesCount, totalBytes };
+}
+
+export async function getBundleFile(
+  projectId: string,
+  reqPath: string
+): Promise<{ content: Buffer; contentType: string; path: string } | null> {
+  const project = await getProject(projectId);
+  if (!project?.activeDeployId) return null;
+  const sb = db();
+
+  let rel = String(reqPath || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  const clean = rel ? sanitizeRelPath(rel) : '';
+  if (clean === null) return null;
+  rel = clean;
+
+  const candidates: string[] = [];
+  if (!rel) candidates.push('index.html');
+  else {
+    candidates.push(rel);
+    if (!path.posix.extname(rel)) {
+      candidates.push(`${rel}.html`, `${rel}/index.html`, 'index.html');
+    }
+  }
+
+  for (const candidate of candidates) {
+    const { data } = await sb
+      .from('share_files')
+      .select('content_base64, content_type, path')
+      .eq('project_id', projectId)
+      .eq('deploy_id', project.activeDeployId)
+      .eq('path', candidate)
+      .maybeSingle();
+    if (data) {
+      return {
+        content: Buffer.from(data.content_base64, 'base64'),
+        contentType: data.content_type,
+        path: data.path,
+      };
+    }
+  }
+  return null;
 }
 
 // ----------------- Links -----------------
-export function listLinks(projectId?: string): LinkRecord[] {
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
-  const list = Object.values(links);
-  if (projectId) return list.filter((l) => l.projectId === projectId);
-  return list;
+
+export async function listLinks(projectId: string): Promise<LinkRecord[]> {
+  const { data, error } = await db()
+    .from('share_links')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(mapLink);
 }
 
-export function findLinkByToken(rawToken: string): LinkRecord | null {
-  const hash = hashToken(rawToken);
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
-  return Object.values(links).find((l) => l.tokenHash === hash) || null;
+export async function findLinkByToken(rawToken: string): Promise<LinkRecord | null> {
+  if (!rawToken || rawToken.length < 16 || rawToken.length > 128) return null;
+  const { data } = await db()
+    .from('share_links')
+    .select('*')
+    .eq('token_hash', hashToken(rawToken))
+    .maybeSingle();
+  return data ? mapLink(data) : null;
 }
 
-export function getLink(linkId: string): LinkRecord | null {
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
-  return links[linkId] || null;
+export async function getLink(linkId: string): Promise<LinkRecord | null> {
+  const { data } = await db().from('share_links').select('*').eq('id', linkId).maybeSingle();
+  return data ? mapLink(data) : null;
 }
 
-export function createLink(opts: {
+export async function createLink(opts: {
   projectId: string;
   label?: string;
   accessType?: 'public' | 'pin' | 'password' | 'email';
@@ -207,74 +347,92 @@ export function createLink(opts: {
   allowedEmails?: string[];
   expiresHours?: number;
   maxUses?: number;
-}): { link: LinkRecord; rawToken: string } {
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
+}): Promise<{ link: LinkRecord; rawToken: string }> {
+  const accessType = opts.accessType || 'public';
+  if (!['public', 'pin', 'password', 'email'].includes(accessType)) throw new Error('Invalid access type');
+  if (accessType === 'pin' && !/^\d{4,8}$/.test(opts.pin || '')) throw new Error('PIN must be 4-8 digits');
+  if (accessType === 'password' && (opts.password || '').length < 4) throw new Error('Password must be at least 4 characters');
+  const emails = (opts.allowedEmails || []).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+  if (accessType === 'email' && emails.length === 0) throw new Error('Add at least one allowed email');
+
   const rawToken = crypto.randomBytes(24).toString('base64url');
-  const tokenHash = hashToken(rawToken);
   const id = `link_${crypto.randomBytes(8).toString('hex')}`;
+  const expiresAt =
+    opts.expiresHours && opts.expiresHours > 0
+      ? new Date(Date.now() + opts.expiresHours * 3600 * 1000).toISOString()
+      : null;
 
-  let expiresAt: string | null = null;
-  if (opts.expiresHours && opts.expiresHours > 0) {
-    expiresAt = new Date(Date.now() + opts.expiresHours * 3600 * 1000).toISOString();
-  }
-
-  const link: LinkRecord = {
-    id,
-    projectId: opts.projectId,
-    label: opts.label?.trim() || 'Access Link',
-    tokenHash,
-    tokenPreview: rawToken.slice(0, 8),
-    accessType: opts.accessType || 'public',
-    pin: opts.pin?.trim() || undefined,
-    passwordHash: opts.password ? hashSecret(opts.password) : undefined,
-    allowedEmails: opts.allowedEmails || undefined,
-    expiresAt,
-    maxUses: opts.maxUses || null,
-    useCount: 0,
-    isRevoked: false,
-    revokedAt: null,
-    createdAt: new Date().toISOString(),
-  };
-
-  links[id] = link;
-  writeJson('links.json', links);
-  return { link, rawToken };
+  const { data, error } = await db()
+    .from('share_links')
+    .insert({
+      id,
+      project_id: opts.projectId,
+      label: (opts.label?.trim() || 'Share link').slice(0, 120),
+      token_hash: hashToken(rawToken),
+      token_preview: rawToken.slice(0, 8),
+      access_type: accessType,
+      pin_hash: accessType === 'pin' ? hashSecret(opts.pin!) : null,
+      password_hash: accessType === 'password' ? hashSecret(opts.password!) : null,
+      allowed_emails: accessType === 'email' ? emails : null,
+      expires_at: expiresAt,
+      max_uses: opts.maxUses && opts.maxUses > 0 ? Math.floor(opts.maxUses) : null,
+    })
+    .select('*')
+    .single();
+  if (error || !data) throw new Error(error?.message || 'Could not create link');
+  return { link: mapLink(data), rawToken };
 }
 
-export function recordLinkUse(linkId: string) {
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
-  if (links[linkId]) {
-    links[linkId].useCount = (links[linkId].useCount || 0) + 1;
-    writeJson('links.json', links);
-  }
+export async function recordLinkUse(linkId: string) {
+  await db().rpc('share_increment_link_use', { p_link_id: linkId });
 }
 
-export function revokeLink(linkId: string): LinkRecord | null {
-  const links = readJson<Record<string, LinkRecord>>('links.json', {});
-  if (!links[linkId]) return null;
-  links[linkId].isRevoked = true;
-  links[linkId].revokedAt = new Date().toISOString();
-  writeJson('links.json', links);
-  return links[linkId];
+export async function revokeLink(linkId: string): Promise<LinkRecord | null> {
+  const { data } = await db()
+    .from('share_links')
+    .update({ is_revoked: true, revoked_at: new Date().toISOString() })
+    .eq('id', linkId)
+    .select('*')
+    .maybeSingle();
+  return data ? mapLink(data) : null;
 }
 
 // ----------------- Audit Events -----------------
-export function recordEvent(event: Omit<AccessEventRecord, 'id' | 'timestamp'>): AccessEventRecord {
-  const events = readJson<AccessEventRecord[]>('events.json', []);
-  const newEvent: AccessEventRecord = {
-    id: `evt_${crypto.randomBytes(8).toString('hex')}`,
-    ...event,
-    timestamp: new Date().toISOString(),
-  };
-  events.unshift(newEvent);
-  // Keep last 500 events
-  if (events.length > 500) events.length = 500;
-  writeJson('events.json', events);
-  return newEvent;
+
+export async function recordEvent(event: Omit<AccessEventRecord, 'id' | 'timestamp'>) {
+  try {
+    await db().from('share_events').insert({
+      id: `evt_${crypto.randomBytes(8).toString('hex')}`,
+      link_id: event.linkId || null,
+      project_id: event.projectId,
+      link_label: event.linkLabel || null,
+      status: event.status,
+      reason: event.reason || null,
+      ip: (event.ip || '').split(',')[0].trim().slice(0, 64) || null,
+      user_agent: (event.userAgent || '').slice(0, 300) || null,
+    });
+  } catch {
+    // auditing must never break serving
+  }
 }
 
-export function listEvents(projectId?: string): AccessEventRecord[] {
-  const events = readJson<AccessEventRecord[]>('events.json', []);
-  if (projectId) return events.filter((e) => e.projectId === projectId);
-  return events;
+export async function listEvents(projectId: string): Promise<AccessEventRecord[]> {
+  const { data, error } = await db()
+    .from('share_events')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw new Error(error.message);
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    linkId: r.link_id,
+    projectId: r.project_id,
+    linkLabel: r.link_label,
+    status: r.status,
+    reason: r.reason,
+    ip: r.ip,
+    userAgent: r.user_agent,
+    timestamp: r.created_at,
+  }));
 }

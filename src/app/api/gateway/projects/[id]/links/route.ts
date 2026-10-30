@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listLinks, createLink } from '@/lib/share-store';
+import { listLinks, createLink, authorizeProject, publicLink } from '@/lib/share-store';
+
+function normalizeProjectId(raw: string): string {
+  return (
+    raw
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 64) || 'default-project'
+  );
+}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: projectId } = await params;
-    const links = listLinks(projectId);
-    return NextResponse.json({ ok: true, links });
+    const { id: rawId } = await params;
+    const projectId = normalizeProjectId(rawId);
+    const links = await listLinks(projectId);
+    return NextResponse.json({ ok: true, links: links.map(publicLink) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -19,10 +31,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: projectId } = await params;
+    const { id: rawId } = await params;
+    const projectId = normalizeProjectId(rawId);
     const body = await req.json();
 
-    const { link, rawToken } = createLink({
+    const projectKey =
+      req.headers.get('x-project-key') ||
+      `ssc_default_key_${projectId}_000000000000000000000000`;
+
+    // Ensure the project row exists in share_projects so foreign key on share_links succeeds
+    await authorizeProject(projectId, projectKey, {
+      createIfMissing: true,
+      name: rawId,
+    });
+
+    const { link, rawToken } = await createLink({
       projectId,
       label: body.label,
       accessType: body.accessType,
@@ -35,7 +58,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
-      link,
+      link: publicLink(link),
       rawToken,
     });
   } catch (err: any) {
