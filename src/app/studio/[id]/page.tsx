@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, use, Suspense } from "react";
 import Link from "next/link";
 import { App, AppVersion, User } from "@/types";
-import { MOCK_USERS } from "@/lib/storage";
+import { MOCK_USERS, getStoredMockUser } from "@/lib/storage";
 import ShareModal from "@/components/ShareModal";
 import { injectSDKIntoHtml } from "@/lib/sdk-script";
 import {
@@ -45,12 +45,16 @@ function StudioContent({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const currentUser = MOCK_USERS[0];
+  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
+    setCurrentUser(getStoredMockUser());
+  }, []);
+
+  useEffect(() => {
     fetchAppAndVersions();
-  }, [appId]);
+  }, [appId, currentUser.id]);
 
   async function fetchAppAndVersions() {
     try {
@@ -93,6 +97,7 @@ function StudioContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           appId,
+          currentHtml,
           instruction: instruction.trim(),
           userId: currentUser.id,
         }),

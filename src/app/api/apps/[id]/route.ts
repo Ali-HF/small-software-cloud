@@ -3,7 +3,13 @@
 // ==============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getApp, updateApp, deleteApp, duplicateApp, MOCK_USERS } from '@/lib/storage';
+import {
+  getApp,
+  updateApp,
+  deleteApp,
+  duplicateApp,
+  resolveUserByIdOrEmail,
+} from '@/lib/storage';
 
 export async function GET(
   req: NextRequest,
@@ -13,14 +19,18 @@ export async function GET(
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
+    const userEmail = searchParams.get('email');
 
-    const currentUser = userId ? MOCK_USERS.find(u => u.id === userId) || null : null;
+    const currentUser = resolveUserByIdOrEmail(userId, userEmail);
     const app = await getApp(id, currentUser);
 
     if (!app) {
       return NextResponse.json(
-        { error: 'App not found or access denied.' },
-        { status: 404 }
+        {
+          error:
+            'Access Denied: You do not have permission to view this tool, or link sharing is disabled.',
+        },
+        { status: 403 }
       );
     }
 

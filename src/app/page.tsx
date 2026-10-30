@@ -98,14 +98,20 @@ export default function LandingPage() {
 
         <nav className="flex items-center gap-4 sm:gap-6 text-xs font-medium">
           <Link
-            href="/quickstart"
+            href="/dashboard"
             className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/quickstart"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:inline"
           >
             Quickstart
           </Link>
           <Link
             href="/dev/components"
-            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:inline"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden md:inline"
           >
             Components
           </Link>
@@ -115,6 +121,12 @@ export default function LandingPage() {
           >
             <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
             <span>Build from a prompt</span>
+          </Link>
+          <Link
+            href="/login"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors hidden sm:inline"
+          >
+            Sign In
           </Link>
 
           {/* Theme switcher */}
@@ -496,6 +508,97 @@ export default function LandingPage() {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Featured Multiplayer Demo Apps */}
+      <section className="py-16 border-t border-[var(--border-default)] bg-[var(--bg-canvas)]">
+        <div className="max-w-5xl mx-auto px-6 sm:px-12">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
+            <div>
+              <Badge variant="accent" className="mb-2">Live Sandbox + SDK Demos</Badge>
+              <h2 className="text-2xl font-bold tracking-tight">Ready-to-use collaborative micro-tools</h2>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Powered by <code className="font-mono">window.cloud.store</code> inside zero-trust sandboxed iframes. Open in two tabs to test live sync.
+              </p>
+            </div>
+            <Link href="/dashboard">
+              <Button variant="secondary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+                Open Cloud Dashboard
+              </Button>
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <Card className="flex flex-col justify-between">
+              <CardContent className="pt-5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <Badge variant="active" dot>Multiplayer</Badge>
+                  <span className="text-[11px] font-mono text-[var(--text-muted)]">/a/app-expense-demo</span>
+                </div>
+                <h3 className="font-semibold text-sm">Flatmate Expense Splitter</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Shared roommate ledger with automatic net settlement calculation and real-time expense logging.
+                </p>
+              </CardContent>
+              <CardFooter>
+                <Link href="/studio/app-expense-demo" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                  Inspect in Studio
+                </Link>
+                <Link href="/a/app-expense-demo">
+                  <Button variant="primary" size="sm" rightIcon={<ExternalLink className="w-3.5 h-3.5" />}>
+                    Launch App
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+
+            <Card className="flex flex-col justify-between">
+              <CardContent className="pt-5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <Badge variant="active" dot>Multiplayer</Badge>
+                  <span className="text-[11px] font-mono text-[var(--text-muted)]">/a/app-poll-demo</span>
+                </div>
+                <h3 className="font-semibold text-sm">Live Team Architecture Poll</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Instant team voting bars with percentage breakdowns and live synchronization across viewers.
+                </p>
+              </CardContent>
+              <CardFooter>
+                <Link href="/studio/app-poll-demo" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                  Inspect in Studio
+                </Link>
+                <Link href="/a/app-poll-demo">
+                  <Button variant="primary" size="sm" rightIcon={<ExternalLink className="w-3.5 h-3.5" />}>
+                    Launch App
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
+
+            <Card className="flex flex-col justify-between">
+              <CardContent className="pt-5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <Badge variant="active" dot>Multiplayer</Badge>
+                  <span className="text-[11px] font-mono text-[var(--text-muted)]">/a/app-roster-demo</span>
+                </div>
+                <h3 className="font-semibold text-sm">Weekly Habit & Standup Roster</h3>
+                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                  Interactive Mon–Fri check-in matrix with live completion rate tracking for teams.
+                </p>
+              </CardContent>
+              <CardFooter>
+                <Link href="/studio/app-roster-demo" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                  Inspect in Studio
+                </Link>
+                <Link href="/a/app-roster-demo">
+                  <Button variant="primary" size="sm" rightIcon={<ExternalLink className="w-3.5 h-3.5" />}>
+                    Launch App
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
           </div>
         </div>
       </section>

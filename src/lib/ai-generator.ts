@@ -40,6 +40,44 @@ RULES FOR GENERATED APPS:
 - Output ONLY the raw HTML code. Do NOT wrap in markdown code fences (\`\`\`html). Do NOT include conversational preamble or postscript.`;
 
 /**
+ * Resolves a remote gateway URL (e.g. the deployed Vercel URL) to proxy AI generation
+ * when running locally without a local ANTHROPIC_API_KEY.
+ * Avoids self-loops by ignoring localhost/127.0.0.1 or the current VERCEL_URL.
+ */
+function getRemoteGatewayUrl(): string | null {
+  const candidate = (
+    process.env.AI_PROXY_URL ||
+    process.env.SHARE_GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    ''
+  )
+    .trim()
+    .replace(/\/+$/, '');
+
+  if (!candidate) return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0'
+    ) {
+      return null;
+    }
+    if (
+      process.env.VERCEL_URL &&
+      parsed.hostname === process.env.VERCEL_URL.replace(/^https?:\/\//, '')
+    ) {
+      return null;
+    }
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Generate a new single-file HTML app based on user prompt.
  */
 export async function generateAppHtml(prompt: string): Promise<string> {
@@ -65,7 +103,27 @@ export async function generateAppHtml(prompt: string): Promise<string> {
         return cleanGeneratedHtml(contentBlock.text);
       }
     } catch (error) {
-      console.warn('[AI Generator] Anthropic API call failed, falling back to local generator:', error);
+      console.warn('[AI Generator] Anthropic API call failed, falling back:', error);
+    }
+  }
+
+  // If no local API key is configured, try proxying through the deployed remote gateway
+  const gatewayUrl = getRemoteGatewayUrl();
+  if (gatewayUrl) {
+    try {
+      const res = await fetch(`${gatewayUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.html && typeof data.html === 'string') {
+          return cleanGeneratedHtml(data.html);
+        }
+      }
+    } catch (error) {
+      console.warn('[AI Generator] Remote gateway proxy failed, falling back to local generator:', error);
     }
   }
 
@@ -99,7 +157,27 @@ export async function iterateAppHtml(currentHtml: string, instruction: string): 
         return cleanGeneratedHtml(contentBlock.text);
       }
     } catch (error) {
-      console.warn('[AI Generator] Iteration API call failed, falling back to local modifier:', error);
+      console.warn('[AI Generator] Iteration API call failed, falling back:', error);
+    }
+  }
+
+  // If no local API key is configured, try proxying through the deployed remote gateway
+  const gatewayUrl = getRemoteGatewayUrl();
+  if (gatewayUrl) {
+    try {
+      const res = await fetch(`${gatewayUrl}/api/iterate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentHtml, instruction }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.html && typeof data.html === 'string') {
+          return cleanGeneratedHtml(data.html);
+        }
+      }
+    } catch (error) {
+      console.warn('[AI Generator] Remote gateway iteration proxy failed, falling back to local modifier:', error);
     }
   }
 

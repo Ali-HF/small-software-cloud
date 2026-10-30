@@ -2,40 +2,74 @@
 
 // ==============================================================================
 // Small Software Cloud - Hosted App Viewer (/a/[id])
-// Features Sandboxed iframe isolation and Host postMessage Bridge
+// Features Sandboxed iframe isolation, Host postMessage Bridge,
+// BroadcastChannel + Supabase Realtime sync, and Design System Token UI
 // ==============================================================================
 
-import React, { useEffect, useState, useRef, use } from 'react';
+import React, { useEffect, useState, useRef, use, Suspense } from 'react';
 import Link from 'next/link';
 import { App, User } from '@/types';
-import { MOCK_USERS } from '@/lib/storage';
+import {
+  MOCK_USERS,
+  getStoredMockUser,
+  setStoredMockUser,
+} from '@/lib/storage';
+import { supabase, hasSupabase, getSupabaseSessionUser } from '@/lib/supabase';
 import ShareModal from '@/components/ShareModal';
-import { 
-  Share2, 
-  Sparkles, 
-  ExternalLink, 
-  RefreshCw, 
-  ShieldCheck, 
-  Lock, 
+import {
+  Share2,
+  Sparkles,
+  RefreshCw,
+  ShieldCheck,
+  Lock,
   ArrowLeft,
-  ChevronDown
+  ChevronDown,
+  Sun,
+  Moon,
+  AlertTriangle,
+  LogIn,
 } from 'lucide-react';
-
-import { Suspense } from 'react';
+import {
+  Button,
+  Badge,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+  InlineAlert,
+  useTheme,
+} from '@/components/ui';
 
 function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const appId = resolvedParams.id;
+  const { resolvedTheme, setTheme } = useTheme();
 
   const [app, setApp] = useState<App | null>(null);
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default Alice
+  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionNotice, setPermissionNotice] = useState<string | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'idle'>('idle');
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<
+    'connected' | 'syncing' | 'readonly'
+  >('connected');
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    const stored = getStoredMockUser();
+    setCurrentUser(stored);
+    if (hasSupabase()) {
+      getSupabaseSessionUser().then((u) => {
+        if (u) setCurrentUser(u);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     fetchApp();
@@ -44,13 +78,30 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
   async function fetchApp() {
     setIsLoading(true);
     setError(null);
+    setPermissionNotice(null);
     try {
-      const res = await fetch(`/api/apps/${appId}?userId=${currentUser.id}`);
+      const res = await fetch(
+        `/api/apps/${appId}?userId=${encodeURIComponent(
+          currentUser.id
+        )}&email=${encodeURIComponent(currentUser.email)}`
+      );
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Access Denied: You do not have permission to view this tool.');
+        setApp(null);
+        setError(
+          data.error ||
+            'Access Denied: You do not have permission to view this tool.'
+        );
       } else {
         setApp(data.app);
+        if (
+          data.app.role === 'viewer' ||
+          data.app.role === 'link_viewer'
+        ) {
+          setSyncStatus('readonly');
+        } else {
+          setSyncStatus('connected');
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load app');
@@ -59,34 +110,84 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
     }
   }
 
-  // Setup BroadcastChannel for Realtime Sync between multiple browser tabs/windows
+  function handleSwitchUser(user: User) {
+    setStoredMockUser(user);
+    setCurrentUser(user);
+    setIsAccountMenuOpen(false);
+  }
+
+  // Setup BroadcastChannel + Supabase Realtime for live multiplayer sync
   useEffect(() => {
     const channelName = `cloud_realtime_${appId}`;
-    const channel = new BroadcastChannel(channelName);
-    broadcastChannelRef.current = channel;
+    const bc = new BroadcastChannel(channelName);
+    broadcastChannelRef.current = bc;
 
-    channel.onmessage = (event) => {
-      const { key, value, updatedBy } = event.data || {};
-      if (key && iframeRef.current && iframeRef.current.contentWindow) {
+    const pushUpdateToIframe = (
+      key: string,
+      value: any,
+      updatedBy?: string | null
+    ) => {
+      if (iframeRef.current && iframeRef.current.contentWindow) {
         setSyncStatus('syncing');
-        // Push broadcast into the sandboxed iframe
-        iframeRef.current.contentWindow.postMessage({
-          type: 'SDK_BROADCAST',
-          appId,
-          key,
-          value,
-          updatedBy
-        }, '*');
-        setTimeout(() => setSyncStatus('connected'), 400);
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: 'SDK_BROADCAST',
+            appId,
+            key,
+            value,
+            updatedBy,
+          },
+          '*'
+        );
+        setTimeout(() => {
+          setSyncStatus(
+            app?.role === 'viewer' || app?.role === 'link_viewer'
+              ? 'readonly'
+              : 'connected'
+          );
+        }, 400);
       }
     };
 
-    return () => {
-      channel.close();
+    bc.onmessage = (event) => {
+      const { key, value, updatedBy } = event.data || {};
+      if (key) {
+        pushUpdateToIframe(key, value, updatedBy);
+      }
     };
-  }, [appId]);
 
-  // Host postMessage Bridge Listener (Secure Gateway between iframe and platform)
+    // Subscribe to Supabase Realtime Postgres Changes on app_kv when configured
+    let sbChannel: any = null;
+    if (supabase) {
+      sbChannel = supabase
+        .channel(`app_kv_${appId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'app_kv',
+            filter: `app_id=eq.${appId}`,
+          },
+          (payload: any) => {
+            const row = payload.new;
+            if (row && row.key !== undefined) {
+              pushUpdateToIframe(row.key, row.value, row.updated_by);
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      bc.close();
+      if (sbChannel && supabase) {
+        supabase.removeChannel(sbChannel);
+      }
+    };
+  }, [appId, app?.role]);
+
+  // Host postMessage Bridge Listener (Secure Gateway between untrusted iframe and platform)
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       const data = event.data;
@@ -95,16 +196,27 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
       const { type, requestId, payload } = data;
 
       if (type === 'SDK_READY') {
-        setSyncStatus('connected');
+        setSyncStatus(
+          app?.role === 'viewer' || app?.role === 'link_viewer'
+            ? 'readonly'
+            : 'connected'
+        );
         return;
       }
 
       if (type === 'GET_USER') {
-        replyIframe(requestId, true, {
-          id: currentUser.id,
-          name: currentUser.name,
-          email: currentUser.email
-        });
+        const isAnonymous = app?.role === 'link_viewer';
+        replyIframe(
+          requestId,
+          true,
+          isAnonymous
+            ? null
+            : {
+                id: currentUser.id,
+                name: currentUser.name,
+                email: currentUser.email,
+              }
+        );
         return;
       }
 
@@ -112,11 +224,16 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
         fetch(`/api/bridge/${appId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'STORE_GET', key: payload?.key, userId: currentUser.id })
+          body: JSON.stringify({
+            action: 'STORE_GET',
+            key: payload?.key,
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+          }),
         })
-          .then(res => res.json())
-          .then(result => replyIframe(requestId, true, result.data))
-          .catch(err => replyIframe(requestId, false, null, err.message));
+          .then((res) => res.json())
+          .then((result) => replyIframe(requestId, true, result.data))
+          .catch((err) => replyIframe(requestId, false, null, err.message));
         return;
       }
 
@@ -129,27 +246,62 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
             action: 'STORE_SET',
             key: payload?.key,
             value: payload?.value,
-            userId: currentUser.id
-          })
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+          }),
         })
-          .then(res => res.json())
-          .then(result => {
-            if (result.success) {
+          .then(async (res) => {
+            const result = await res.json();
+            return { ok: res.ok, result };
+          })
+          .then(({ ok, result }) => {
+            if (ok && result.success) {
+              setPermissionNotice(null);
               replyIframe(requestId, true, true);
-              // Broadcast update to all other open tabs/viewers via BroadcastChannel
               if (broadcastChannelRef.current) {
                 broadcastChannelRef.current.postMessage({
                   key: payload?.key,
                   value: payload?.value,
-                  updatedBy: currentUser.id
+                  updatedBy: currentUser.id,
                 });
               }
               setSyncStatus('connected');
             } else {
-              replyIframe(requestId, false, null, result.error);
+              const errMsg =
+                result.error ||
+                'Permission denied: Read-only access for viewers.';
+              setPermissionNotice(errMsg);
+              setSyncStatus('readonly');
+              replyIframe(requestId, false, null, errMsg);
+              // Re-sync authoritative state back into iframe so optimistic UI reverts cleanly
+              fetch(`/api/bridge/${appId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'STORE_GET',
+                  key: payload?.key,
+                  userId: currentUser.id,
+                  userEmail: currentUser.email,
+                }),
+              })
+                .then((r) => r.json())
+                .then((authoritative) => {
+                  if (iframeRef.current?.contentWindow) {
+                    iframeRef.current.contentWindow.postMessage(
+                      {
+                        type: 'SDK_BROADCAST',
+                        appId,
+                        key: payload?.key,
+                        value: authoritative.data,
+                      },
+                      '*'
+                    );
+                  }
+                })
+                .catch(() => {});
             }
           })
-          .catch(err => replyIframe(requestId, false, null, err.message));
+          .catch((err) => replyIframe(requestId, false, null, err.message));
         return;
       }
 
@@ -157,11 +309,16 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
         fetch(`/api/bridge/${appId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'STORE_LIST', prefix: payload?.prefix, userId: currentUser.id })
+          body: JSON.stringify({
+            action: 'STORE_LIST',
+            prefix: payload?.prefix,
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+          }),
         })
-          .then(res => res.json())
-          .then(result => replyIframe(requestId, true, result.keys))
-          .catch(err => replyIframe(requestId, false, null, err.message));
+          .then((res) => res.json())
+          .then((result) => replyIframe(requestId, true, result.keys))
+          .catch((err) => replyIframe(requestId, false, null, err.message));
         return;
       }
 
@@ -171,21 +328,29 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
       }
     }
 
-    function replyIframe(requestId: string, success: boolean, data?: any, error?: string) {
+    function replyIframe(
+      requestId: string,
+      success: boolean,
+      data?: any,
+      error?: string
+    ) {
       if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({
-          type: 'SDK_RESPONSE',
-          requestId,
-          success,
-          data,
-          error
-        }, '*');
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: 'SDK_RESPONSE',
+            requestId,
+            success,
+            data,
+            error,
+          },
+          '*'
+        );
       }
     }
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [appId, currentUser]);
+  }, [appId, currentUser, app?.role]);
 
   function reloadIframe() {
     if (iframeRef.current) {
@@ -193,12 +358,23 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
     }
   }
 
+  // Construct sandboxed embed URL (supports separate origin via NEXT_PUBLIC_SANDBOX_ORIGIN)
+  const sandboxOrigin = (process.env.NEXT_PUBLIC_SANDBOX_ORIGIN || '').replace(
+    /\/$/,
+    ''
+  );
+  const embedSrc = `${sandboxOrigin}/embed/${appId}?userId=${encodeURIComponent(
+    currentUser.id
+  )}&email=${encodeURIComponent(currentUser.email)}`;
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center text-[var(--text-muted)]">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm">Connecting to secure sandbox...</p>
+          <div className="w-7 h-7 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-medium">
+            Initializing zero-trust sandbox...
+          </p>
         </div>
       </div>
     );
@@ -206,135 +382,247 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
 
   if (error || !app) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full rounded-2xl bg-slate-900 border border-slate-800 p-8 text-center text-slate-100 shadow-2xl">
-          <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto mb-4">
-            <Lock className="w-6 h-6" />
-          </div>
-          <h1 className="text-xl font-bold mb-2">Access Restricted</h1>
-          <p className="text-sm text-slate-400 mb-6">{error}</p>
-          <div className="flex flex-col gap-2">
-            <div className="text-xs text-slate-500 mb-1">Try switching test account:</div>
-            <div className="flex justify-center gap-2 mb-4">
-              {MOCK_USERS.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => setCurrentUser(user)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                    currentUser.id === user.id
-                      ? 'bg-indigo-600 border-indigo-500 text-white'
-                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  {user.name.split(' ')[0]}
-                </button>
-              ))}
+      <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] flex items-center justify-center p-6">
+        <Card className="max-w-md w-full shadow-lg">
+          <CardHeader>
+            <div className="w-10 h-10 rounded-lg bg-[var(--status-revoked-bg)] border border-[var(--status-revoked-border)] text-[var(--status-revoked-text)] flex items-center justify-center mb-2">
+              <Lock className="w-5 h-5" />
             </div>
-            <Link
-              href="/dashboard"
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition-colors"
-            >
-              Return to Dashboard
+            <CardTitle>No Access to This Tool</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+
+          <CardContent className="flex flex-col gap-4">
+            <div className="p-3 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-default)] text-xs">
+              <div className="font-semibold text-[var(--text-secondary)] mb-1">
+                Signed in as: {currentUser.name}
+              </div>
+              <div className="font-mono text-[11px] text-[var(--text-muted)]">
+                {currentUser.email}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                Switch test account to verify role permissions:
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {MOCK_USERS.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => handleSwitchUser(user)}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium border text-left transition-colors cursor-pointer ${
+                      currentUser.id === user.id
+                        ? 'bg-[var(--accent-subtle)] border-[var(--accent-border)] text-[var(--accent)] font-semibold'
+                        : 'bg-[var(--bg-surface)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <div className="truncate">{user.name}</div>
+                    <div className="text-[10px] font-mono text-[var(--text-muted)] truncate">
+                      {user.email}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+
+          <CardFooter>
+            <Link href="/login">
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<LogIn className="w-3.5 h-3.5" />}
+              >
+                Sign In with OAuth
+              </Button>
             </Link>
-          </div>
-        </div>
+            <Link href="/dashboard">
+              <Button variant="primary" size="sm">
+                Return to Dashboard
+              </Button>
+            </Link>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden">
       {/* Top Navigation Bar */}
-      <header className="h-14 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between shrink-0 z-10">
-        
+      <header className="h-14 bg-[var(--bg-surface)] border-b border-[var(--border-default)] px-4 flex items-center justify-between shrink-0 z-20">
         {/* Left: App Info */}
         <div className="flex items-center gap-3">
-          <Link 
-            href="/dashboard" 
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          <Link
+            href="/dashboard"
+            className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors focus-ring"
             title="Back to Dashboard"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold truncate max-w-xs md:max-w-md">{app.title}</h1>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                {app.role === 'owner' ? 'Owner' : app.role === 'editor' ? 'Editor' : 'Viewer'}
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold truncate max-w-[180px] sm:max-w-xs md:max-w-md">
+              {app.title}
+            </h1>
+            <Badge
+              variant={
+                app.role === 'owner'
+                  ? 'accent'
+                  : app.role === 'editor'
+                  ? 'active'
+                  : 'restricted'
+              }
+            >
+              {app.role === 'owner'
+                ? 'Owner'
+                : app.role === 'editor'
+                ? 'Editor'
+                : app.role === 'viewer'
+                ? 'Viewer (Read-only)'
+                : 'Link Viewer (Read-only)'}
+            </Badge>
           </div>
         </div>
 
-        {/* Center: Live Realtime Indicator */}
-        <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-slate-950/60 px-3 py-1 rounded-full border border-slate-800">
-          <div className={`w-2 h-2 rounded-full ${syncStatus === 'syncing' ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
-          <span>{syncStatus === 'syncing' ? 'Syncing...' : 'Realtime Sync Active'}</span>
+        {/* Center: Live Realtime & Sandbox Indicator */}
+        <div className="hidden md:flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-subtle)] px-3 py-1 rounded-full border border-[var(--border-default)]">
+          <ShieldCheck className="w-3.5 h-3.5 text-[var(--accent)]" />
+          <span>Isolated Sandbox</span>
+          <span className="text-[var(--text-faint)]">•</span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              syncStatus === 'syncing'
+                ? 'bg-[var(--status-restricted-dot)] animate-ping'
+                : syncStatus === 'readonly'
+                ? 'bg-[var(--status-restricted-dot)]'
+                : 'bg-[var(--status-active-dot)]'
+            }`}
+          />
+          <span>
+            {syncStatus === 'syncing'
+              ? 'Syncing state...'
+              : syncStatus === 'readonly'
+              ? 'Read-Only Mode'
+              : 'Realtime Sync Active'}
+          </span>
         </div>
 
         {/* Right: Actions & User Switcher */}
         <div className="flex items-center gap-2">
           {/* Switch Active Test Account */}
-          <div className="relative group">
-            <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition-colors">
-              <span className="w-2 h-2 rounded-full bg-indigo-400" />
-              <span className="truncate max-w-[100px]">{currentUser.name.split(' ')[0]}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[var(--bg-subtle)] hover:bg-[var(--bg-muted)] text-xs text-[var(--text-primary)] border border-[var(--border-default)] transition-colors focus-ring cursor-pointer"
+            >
+              <span className="w-2 h-2 rounded-full bg-[var(--accent)]" />
+              <span className="truncate max-w-[110px] font-medium">
+                {currentUser.name.split(' ')[0]}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />
             </button>
 
-            <div className="absolute right-0 mt-1 w-48 rounded-xl bg-slate-900 border border-slate-800 p-1.5 shadow-xl hidden group-hover:block z-20">
-              <div className="text-[10px] font-semibold text-slate-400 px-2.5 py-1 uppercase">Switch Test Role</div>
-              {MOCK_USERS.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => setCurrentUser(user)}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between ${
-                    currentUser.id === user.id
-                      ? 'bg-indigo-600 text-white font-semibold'
-                      : 'text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{user.name}</span>
-                  <span className="text-[10px] opacity-75">{user.email.split('@')[0]}</span>
-                </button>
-              ))}
-            </div>
+            {isAccountMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-60 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] p-1.5 shadow-xl z-30">
+                <div className="text-[10px] font-bold text-[var(--text-muted)] px-2.5 py-1 uppercase tracking-wider">
+                  Test Multi-User Role
+                </div>
+                {MOCK_USERS.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => handleSwitchUser(user)}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer ${
+                      currentUser.id === user.id
+                        ? 'bg-[var(--accent-subtle)] text-[var(--accent)] font-semibold'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <span>{user.name}</span>
+                    <span className="text-[10px] font-mono opacity-75">
+                      {user.email.split('@')[0]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
+            type="button"
             onClick={reloadIframe}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            title="Reload App"
+            className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] border border-transparent hover:border-[var(--border-default)] transition-colors focus-ring cursor-pointer"
+            title="Reload Sandboxed App"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
 
+          <button
+            type="button"
+            onClick={() =>
+              setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+            }
+            className="p-1.5 rounded-md border border-[var(--border-default)] bg-[var(--bg-canvas)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-ring cursor-pointer"
+            aria-label="Toggle theme"
+          >
+            {resolvedTheme === 'dark' ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+          </button>
+
           {(app.role === 'owner' || app.role === 'editor') && (
-            <Link
-              href={`/studio/${app.id}`}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Studio</span>
+            <Link href={`/studio/${app.id}`}>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                }
+              >
+                Studio
+              </Button>
             </Link>
           )}
 
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setIsShareModalOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+            leftIcon={<Share2 className="w-3.5 h-3.5" />}
           >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Share</span>
-          </button>
+            Share
+          </Button>
         </div>
       </header>
 
+      {/* Read-Only Permission Denied Banner when Viewer attempts to write */}
+      {permissionNotice && (
+        <div className="px-4 py-2 bg-[var(--status-restricted-bg)] border-b border-[var(--status-restricted-border)] text-[var(--status-restricted-text)] text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{permissionNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPermissionNotice(null)}
+            className="text-xs underline ml-4 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Sandboxed App Container */}
-      <main className="flex-1 w-full bg-slate-950 relative">
+      <main className="flex-1 w-full bg-[var(--bg-canvas)] relative">
         <iframe
           ref={iframeRef}
-          src={`/embed/${appId}?userId=${currentUser.id}`}
+          src={embedSrc}
           title={app.title}
           sandbox="allow-scripts" // Strict security: NO allow-same-origin
           className="w-full h-full border-0 bg-transparent"
@@ -355,18 +643,23 @@ function HostedAppContent({ params }: { params: Promise<{ id: string }> }) {
   );
 }
 
-export default function HostedAppPage({ params }: { params: Promise<{ id: string }> }) {
+export default function HostedAppPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm">Loading tool...</p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center text-[var(--text-muted)]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-7 h-7 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs">Loading tool...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <HostedAppContent params={params} />
     </Suspense>
   );
 }
-

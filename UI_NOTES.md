@@ -40,5 +40,11 @@ All components include visible focus rings (`.focus-ring`), keyboard accessibili
 
 ---
 
-## Review Route
-- **Interactive Component Kit Showcase:** [http://localhost:3001/dev/components](http://localhost:3001/dev/components)
+## Review Routes
+- **Public Landing & Simulator:** [http://localhost:3000/](http://localhost:3000/)
+- **Cloud Dashboard (My Apps & Shared With Me):** [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
+- **OAuth Sign-In & Multi-User Account Switcher:** [http://localhost:3000/login](http://localhost:3000/login)
+- **Prompt-to-App Studio:** [http://localhost:3000/studio](http://localhost:3000/studio)
+- **Sandboxed App Viewer + SDK Bridge:** [http://localhost:3000/a/app-expense-demo](http://localhost:3000/a/app-expense-demo)
+- **Share CLI Quickstart:** [http://localhost:3000/quickstart](http://localhost:3000/quickstart)
+- **Interactive Component Kit Showcase:** [http://localhost:3000/dev/components](http://localhost:3000/dev/components)
